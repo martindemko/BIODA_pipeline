@@ -2,6 +2,7 @@ import math
 import subprocess
 from snakemake.utils import R
 from snakemake.utils import report
+from os.path import split
 
 #from pytools.persistent_dict import PersistentDict
 #storage = PersistentDict("mystorage")
@@ -104,6 +105,7 @@ STAR_INTRON_MAX = config[CONF_STAR_ALIGN_INTRON_MAX_TERM] if (CONF_STAR_ALIGN_IN
 STAR_MATES_GAP = config[CONF_STAR_ALIGN_MATES_GAP_TERM] if (CONF_STAR_ALIGN_MATES_GAP_TERM in config) else STAR_MATES_GAP
 STAR_PARAMS = config[CONF_STAR_PARAMS_TERM] if (CONF_STAR_PARAMS_TERM in config) else DEF_STAR_PARAMS
 help = subprocess.Popen("grep -v '>' "+GENOME_FILE+" | wc -m",shell=True,stdout=subprocess.PIPE).communicate()[0]
+print(help)
 STAR_GENOME_BASES_LOG = min(14,math.floor(math.log(float(int(help)),2)/2-1))
 
 STRANDS = ["forward","reverse"]
@@ -148,7 +150,7 @@ rule final_report:
           expand("{dir}/aligned/Log.final.out",dir=OUTPUT_DIR),
           expand("{dir}/RSEM/RSEM_calc_expr.pdf",dir=OUTPUT_DIR),
           expand("{dir}/FeatureCounts/feature_counts.txt",dir=OUTPUT_DIR),
-          expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf")),
+          expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf")),
           expand("{dir}/strandness.txt", dir=OUTPUT_DIR),
           expand("{dir}/preseq/Aligned.sortedByCoord.estimates.txt",dir=OUTPUT_DIR),
           expand("{dir}/mapped_QC/featureCounts.quantSeq.rev.biotype_counts.txt",dir=OUTPUT_DIR),
@@ -368,7 +370,7 @@ if GENOME_INDEX == DEF_GENOME_INDEX :
   rule STAR_gen_index:
     input:  genome = expand("{data}",data=GENOME_FILE),
             ref = expand("{data}",data=ANNOTATION)
-    output: dir = expand("{dir}/genome_index/{data}",dir=OUTPUT_DIR,data=GENOME_FILE.rstrip(".gz").rstrip(".fa|.fasta")),
+    output: dir = expand("{dir}/genome_index/{data}",dir=OUTPUT_DIR,data=split(GENOME_FILE)[1].rstrip(".gz").rstrip(".fa|.fasta")),
             prefix = expand("{dir}/genome_index/",dir=OUTPUT_DIR)
     threads:  12
     params: extra = "",
@@ -382,14 +384,14 @@ if GENOME_INDEX == DEF_GENOME_INDEX :
 import os
 rule STAR_alignment:
   input:  reads = expand("{dir}/trimming/{data}.clean.fastq.gz",data=DATA.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand(["{dir}/trimming/{data1}.clean.fastq.gz","{dir}/trimming/{data2}.clean.fastq.gz"],data1=DATA1.strip(".fastq.gz|.fq.gz"),data2=DATA2.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
-          gen_index = expand("{data}",data=GENOME_INDEX) if GENOME_INDEX != DEF_GENOME_INDEX else expand("{dir}/genome_index/{data}",dir=OUTPUT_DIR,data=GENOME_FILE.rstrip(".gz").rstrip(".fa|.fasta")),
+          gen_index = expand("{data}",data=GENOME_INDEX) if GENOME_INDEX != DEF_GENOME_INDEX else expand("{dir}/genome_index/{data}",dir=OUTPUT_DIR,data=split(GENOME_FILE)[1].rstrip(".gz").rstrip(".fa|.fasta")),
           ref = expand("{data}",data=ANNOTATION)
   output: final_log = expand("{dir}/aligned/Log.final.out",dir=OUTPUT_DIR),
           gen_bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
           trans_bam_tmp = temp(expand("{dir}/aligned/Aligned.toTranscriptome.out.bam",dir=OUTPUT_DIR)),
           trans_bam = expand("{dir}/aligned/Aligned.toTranscriptome.sortedByCoord.out.bam",dir=OUTPUT_DIR)
   threads: 12
-  resources:  mem_mb=10000
+  resources:  mem_mb=30000
   params: reads = expand("{dir}/trimming/{data}.clean.fastq.gz",data=DATA.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/trimming/{data1}.clean.fastq.gz {dir}/trimming/{data2}.clean.fastq.gz",data1=DATA1.strip(".fastq.gz|.fq.gz"),data2=DATA2.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
           dir = expand("{dir}/aligned/",dir=OUTPUT_DIR),
           read_command = "zcat",  #might be conditional to input
@@ -434,11 +436,11 @@ rule STAR_index:
 rule RSEM_prep_ref:
   input:  ref = expand("{data}",data=ANNOTATION),
           genome = expand("{data}",data=GENOME_FILE)
-  output: idx = expand("{dir}/RSEM/{data}.idx.fa",dir=OUTPUT_DIR,data=ANNOTATION.rstrip(".gz").rstrip(".gtf|.gff|.gff3"))
+  output: idx = expand("{dir}/RSEM/{data}.idx.fa",dir=OUTPUT_DIR,data=split(ANNOTATION)[1].rstrip(".gz").rstrip(".gtf|.gff|.gff3"))
   log:    run = expand("{dir}/RSEM/RSEM_prep_ref.log",dir=OUTPUT_DIR)
   threads:  4
-  params: rsem_ref = expand("{dir}/RSEM/{data}",dir=OUTPUT_DIR,data=ANNOTATION.rstrip(".gz").rstrip(".gtf|.gff|.gff3")),
-          use_ref = "--gtf" if ANNOTATION.endswith(".gtf") else "--gff3"
+  params: rsem_ref = expand("{dir}/RSEM/{data}",dir=OUTPUT_DIR,data=split(ANNOTATION)[1].rstrip(".gz").rstrip(".gtf|.gff|.gff3")),
+          use_ref = "--gtf" if ANNOTATION.rstrip(".gz").endswith(".gtf") else "--gff3"
   shell:  """
           {RSEM_PATH}rsem-prepare-reference --num-threads {threads} {params.use_ref} {input.ref} {input.genome} {params.rsem_ref} > {log.run} 2>&1
           """
@@ -446,7 +448,7 @@ rule RSEM_prep_ref:
 
 rule RSEM_calc_expr:
   input:  bam = expand("{dir}/aligned/Aligned.toTranscriptome.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          idx = expand("{dir}/RSEM/{data}.idx.fa",dir=OUTPUT_DIR,data=ANNOTATION.rstrip(".gz").rstrip(".gtf|.gff|.gff3"))
+          idx = expand("{dir}/RSEM/{data}.idx.fa",dir=OUTPUT_DIR,data=split(ANNOTATION)[1].rstrip(".gz").rstrip(".gtf|.gff|.gff3"))
   output: dir = expand("{dir}/RSEM",dir=OUTPUT_DIR),
           help_bam = temp(expand("{dir}/RSEM/Aligned.toTranscriptome.converted_for_RSEM.bam",dir=OUTPUT_DIR)),
           pdf = expand("{dir}/RSEM/RSEM_calc_expr.pdf",dir=OUTPUT_DIR)
@@ -458,7 +460,7 @@ rule RSEM_calc_expr:
           paired = "" if config[CONF_DATA_TYPE_TERM] == "single" else "--paired-end",
           extra = "--estimate-rspd --calc-ci --no-bam-output --seed 12345 --forward-prob 0",
           bam = expand("{dir}/aligned/Aligned.toTranscriptome.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          ref = expand("{dir}/RSEM/{data}",dir=OUTPUT_DIR,data=ANNOTATION.rstrip(".gz").rstrip(".gtf|.gff|.gff3")),
+          ref = expand("{dir}/RSEM/{data}",dir=OUTPUT_DIR,data=split(ANNOTATION)[1].rstrip(".gz").rstrip(".gtf|.gff|.gff3")),
           help_bam = temp(expand("{dir}/RSEM/Aligned.toTranscriptome.converted_for_RSEM",dir=OUTPUT_DIR)),
           prefix = expand("{dir}/RSEM/RSEM_calc_expr",dir=OUTPUT_DIR)
   run:  
@@ -494,13 +496,13 @@ rule FeatureCounts:
 rule mapping_qc_preparation:
   input:  ref = expand("{data}",data=ANNOTATION),
           bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR)
-  output: tmp = temp(expand("{dir}/mapped_QC/temp_{data}",data=ANNOTATION, dir=OUTPUT_DIR)),
-          bed12 = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR),
-          tmp2 = temp(expand("{dir}/mapped_QC/temp_{data}.refFlat",data=ANNOTATION, dir=OUTPUT_DIR)),
-          flat = expand("{dir}/mapped_QC/{data}.refFlat.txt", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf")),
-          head = expand("{dir}/mapped_QC/{data}.header", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf")),
-          list = expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf")),
-          rrna = expand("{dir}/mapped_QC/{data}.rRNA.gtf", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf"))
+  output: tmp = temp(expand("{dir}/mapped_QC/temp_{data}",data=split(ANNOTATION)[1], dir=OUTPUT_DIR)),
+          bed12 = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR),
+          tmp2 = temp(expand("{dir}/mapped_QC/temp_{data}.refFlat",data=split(ANNOTATION)[1], dir=OUTPUT_DIR)),
+          flat = expand("{dir}/mapped_QC/{data}.refFlat.txt", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf")),
+          head = expand("{dir}/mapped_QC/{data}.header", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf")),
+          list = expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf")),
+          rrna = expand("{dir}/mapped_QC/{data}.rRNA.gtf", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf"))
   shell:  """
           {UCSC_SCRIPTS}/gtfToGenePred -genePredExt -geneNameAsName2 {input.ref} {output.tmp}
           awk '{{print $2"\t"$4"\t"$5"\t"$1"\t0\t"$3"\t"$6"\t"$7"\t0\t"$8"\t"$9"\t"$10}}' {output.tmp} > {output.bed12}
@@ -519,8 +521,8 @@ rule mapping_qc_preparation:
 rule mapping_qc_picard:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
           bai = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam.bai",dir=OUTPUT_DIR),
-          flat = expand("{dir}/mapped_QC/{data}.refFlat.txt", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf")),
-          list = expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=ANNOTATION.rstrip(".gtf"))
+          flat = expand("{dir}/mapped_QC/{data}.refFlat.txt", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf")),
+          list = expand("{dir}/mapped_QC/{data}.rRNA.intervalListBody.txt", dir=OUTPUT_DIR, data=split(ANNOTATION)[1].rstrip(".gtf"))
   output: txt_fwd = expand("{dir}/picard/Aligned.sortedByCoord.output.RNA_Metrics.forward.txt", dir=OUTPUT_DIR),
           txt_rev = expand("{dir}/picard/Aligned.sortedByCoord.output.RNA_Metrics.reverse.txt", dir=OUTPUT_DIR)
   log:    run = expand("{dir}/picard/run_stats.log", dir=OUTPUT_DIR)
@@ -634,7 +636,7 @@ rule summary_biotypes:                              ################## CHECK WIT
 #### TODO: not working - needs to be resolved
 rule RSeQC_read_distribution:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR)
+          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR)
   output: expand("{dir}/RSeQC/Aligned.sortedByCoord.read_distribution.txt",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/RSeQC/read_distribution.log",dir=OUTPUT_DIR)
   shell:  """
@@ -643,7 +645,7 @@ rule RSeQC_read_distribution:
           
 rule RSeQC_junction_saturation:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR)
+          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR)
   output: expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/RSeQC/junction_saturation.log",dir=OUTPUT_DIR)
   params: prefix = expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_saturation",dir=OUTPUT_DIR)
@@ -653,7 +655,7 @@ rule RSeQC_junction_saturation:
        
 rule RSeQC_junction_annotation:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR)
+          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR)
   output: expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_annotation.junction.xls",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/RSeQC/junction_annotation.log",dir=OUTPUT_DIR)
   params: prefix = expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_annotation",dir=OUTPUT_DIR)
@@ -671,7 +673,7 @@ rule RSeQC_bam_stat:
        
 rule RSeQC_infer_experiment:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR)
+          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR)
   output: expand("{dir}/RSeQC/Aligned.sortedByCoord.infer_experiment.txt",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/RSeQC/infer_experiment.log",dir=OUTPUT_DIR)
   shell:  """
@@ -690,7 +692,7 @@ rule RSeQC_read_duplication:
 rule RSeQC_RPKM_saturation:
   input:  expand("{dir}/strandness.txt", dir=OUTPUT_DIR),
           bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR),
-          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=ANNOTATION.rstrip(".gtf"), dir=OUTPUT_DIR)
+          bed = expand("{dir}/mapped_QC/{data}.genes.bed12", data=split(ANNOTATION)[1].rstrip(".gtf"), dir=OUTPUT_DIR)
   output: expand("{dir}/RSeQC/Aligned.sortedByCoord.RPKM_saturation.rawCount.xls",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/RSeQC/RPKM_saturation.log",dir=OUTPUT_DIR)
   params: prefix = expand("{dir}/RSeQC/Aligned.sortedByCoord.RPKM_saturation",dir=OUTPUT_DIR)

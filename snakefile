@@ -105,7 +105,6 @@ STAR_INTRON_MAX = config[CONF_STAR_ALIGN_INTRON_MAX_TERM] if (CONF_STAR_ALIGN_IN
 STAR_MATES_GAP = config[CONF_STAR_ALIGN_MATES_GAP_TERM] if (CONF_STAR_ALIGN_MATES_GAP_TERM in config) else STAR_MATES_GAP
 STAR_PARAMS = config[CONF_STAR_PARAMS_TERM] if (CONF_STAR_PARAMS_TERM in config) else DEF_STAR_PARAMS
 help = subprocess.Popen("grep -v '>' "+GENOME_FILE+" | wc -m",shell=True,stdout=subprocess.PIPE).communicate()[0]
-print(help)
 STAR_GENOME_BASES_LOG = min(14,math.floor(math.log(float(int(help)),2)/2-1))
 
 STRANDS = ["forward","reverse"]
@@ -143,8 +142,8 @@ rule all:
   
   
 rule final_report:
-  input:  #expand("{dir}/1st_qc",dir=OUTPUT_DIR),
-          #expand("{dir}/minion/{data}.minion.compare",data=SAMPLES,dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/minion/{data}.minion.compare",data=DATA2.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR),
+  input:  expand("{dir}/1st_qc/{data}_fastqc.html", dir=OUTPUT_DIR, data=SAMPLES),
+          expand("{dir}/minion/{data}.minion.compare",data=SAMPLES,dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/minion/{data}.minion.compare",data=DATA2.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR),
           expand("{dir}/trimming",dir=OUTPUT_DIR),
           expand("{dir}/2nd_qc",dir=OUTPUT_DIR),
           expand("{dir}/aligned/Log.final.out",dir=OUTPUT_DIR),
@@ -154,23 +153,51 @@ rule final_report:
           expand("{dir}/strandness.txt", dir=OUTPUT_DIR),
           expand("{dir}/preseq/Aligned.sortedByCoord.estimates.txt",dir=OUTPUT_DIR),
           expand("{dir}/mapped_QC/featureCounts.quantSeq.rev.biotype_counts.txt",dir=OUTPUT_DIR),
-          expand("{dir}/mapped_QC/Aligned.sortedByCoord.dupRadar_dupMatrix.txt",dir=OUTPUT_DIR)
+          expand("{dir}/mapped_QC/Aligned.sortedByCoord.dupRadar_dupMatrix.txt",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.RPKM_saturation.rawCount.xls",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.read_duplication.seq.DupRate.xls",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.infer_experiment.txt",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.bam_stat.txt",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_annotation.junction.xls",dir=OUTPUT_DIR),
+          expand("{dir}/RSeQC/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r",dir=OUTPUT_DIR)
+
   output: "report_all.html"
   shell:  "touch {output}"
 
 
-#rule step_zero_report:
-#  input:  expand("{dir}/1st_qc/{data}_fastqc.html", dir=OUTPUT_DIR, data=SAMPLES),
-#          expand("{dir}/minion/{data}.minion.compare",data=SAMPLES,dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/minion/{data}.minion.compare",data=DATA2.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR)
-#  output: "report_step_zero.html"
-#  shell:  "touch {output}"
+rule step_zero_report:
+  input:  expand("{dir}/1st_qc/{data}_fastqc.html", dir=OUTPUT_DIR, data=SAMPLES),
+          expand("{dir}/minion/{data}.minion.compare",data=SAMPLES,dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/minion/{data}.minion.compare",data=DATA2.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR)
+  output: "report_step_zero.html"
+  shell:  "touch {output}"
   
   
 ####################################
-# DEFINITION OF ZERO-STEP RULES (FIRST QC, ADAPTERS CHECK)
+# DEFINITION OF ZERO-STEP RULES (COPY OF DATA, FIRST QC, ADAPTERS CHECK)
 #
+if config[CONF_DATA_TYPE_TERM] == "single":
+  rule copy_data:
+    input:  reads = expand("{dir}/{data}",data=DATA,dir=INPUT_DIR)
+    output: reads = expand("{dir}/data/reads/{data}",data=DATA,dir=OUTPUT_DIR)
+    run:
+            shell("""
+            ln {input.reads} {output.reads}
+            """)
+else:
+  rule copy_data:
+    input:  reads1 = expand("{dir}/{data}",data=DATA1,dir=INPUT_DIR),
+            reads2 = expand("{dir}/{data}",data=DATA2,dir=INPUT_DIR)
+    output: reads1 = expand("{dir}/data/reads/{data1}", data1=DATA1, dir=OUTPUT_DIR),
+            reads2 = expand("{dir}/data/reads/{data2}", data2=DATA2, dir=OUTPUT_DIR)
+    run:
+            shell("""
+              ln {input.reads1} {output.reads1}
+              ln {input.reads2} {output.reads2}
+            """)
+            
+
 rule first_qc:
-  input:  reads = expand("{dir}/{data}",data=DATA,dir=INPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand(["{dir}/{data1}","{dir}/{data2}"],data1=DATA1,data2=DATA2,dir=INPUT_DIR)
+  input:  reads = expand("{dir}/data/reads/{data}",data=DATA,dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand(["{dir}/data/reads/{data1}","{dir}/data/reads/{data2}"],data1=DATA1,data2=DATA2,dir=OUTPUT_DIR)
   output: html = expand("{dir}/1st_qc/{data}_fastqc.html", dir=OUTPUT_DIR, data=SAMPLES)
   log:    run = expand("{dir}/1st_qc/run_stats.log", dir=OUTPUT_DIR),
           report = expand("{dir}/report.html", dir=OUTPUT_DIR)
@@ -205,7 +232,7 @@ rule first_qc:
        
 if config[CONF_DATA_TYPE_TERM] == "single":
   rule check_adapters:
-    input:  reads = expand("{dir}/{data}",data=DATA,dir=INPUT_DIR)
+    input:  reads = expand("{dir}/data/reads/{data}",data=DATA,dir=OUTPUT_DIR)
     output: minion = expand("{dir}/minion/{data}.minion.fa",data=DATA.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR)
     log:    run = expand("{dir}/minion/{data}.log",data=DATA.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR),
             report = expand("{dir}/report.html", dir=OUTPUT_DIR)
@@ -224,8 +251,8 @@ if config[CONF_DATA_TYPE_TERM] == "single":
             """, *log.report, **input, **output)
 else:
   rule check_adapters:
-    input:  reads1 = expand("{dir}/{data}",data=DATA1,dir=INPUT_DIR),
-            reads2 = expand("{dir}/{data}",data=DATA2,dir=INPUT_DIR)
+    input:  reads1 = expand("{dir}/data/reads/{data}",data=DATA1,dir=OUTPUT_DIR),
+            reads2 = expand("{dir}/data/reads/{data}",data=DATA2,dir=OUTPUT_DIR)
     output: minion1 = expand("{dir}/minion/{data}.minion.fa",data=DATA1.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR),
             minion2 = expand("{dir}/minion/{data}.minion.fa",data=DATA2.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR)
     log:    run1 = expand("{dir}/minion/{data}.log",data=DATA1.strip(".gz").strip(".fq|.fastq"),dir=OUTPUT_DIR),
@@ -274,7 +301,7 @@ else:
 if config[CONF_ANALYSIS_TYPE_TERM] == "quant":
   if config[CONF_DATA_TYPE_TERM] == "single":
     rule trimming_by_bbmap:
-      input:  reads = expand("{dir}/{data}",data=DATA,dir=INPUT_DIR),
+      input:  reads = expand("{dir}/data/reads/{data}",data=DATA,dir=OUTPUT_DIR),
               adapters = expand("{data}",data=ADAPTERS)
       output: dir = expand("{dir}/trimming",dir=OUTPUT_DIR),
               clean = expand(["{dir}/trimming/{data}.clean.fastq.gz"],data=DATA.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
@@ -290,8 +317,8 @@ if config[CONF_ANALYSIS_TYPE_TERM] == "quant":
               """
   else:
     rule trimming_by_bbmap:
-      input:  r1 = expand("{dir}/{data1}",data1=DATA1,dir=INPUT_DIR),
-              r2 = expand("{dir}/{data2}",data2=DATA2,dir=INPUT_DIR),
+      input:  r1 = expand("{dir}/data/reads/{data1}",data1=DATA1,dir=OUTPUT_DIR),
+              r2 = expand("{dir}/data/reads/{data2}",data2=DATA2,dir=OUTPUT_DIR),
               adapters = expand("{data}",data=ADAPTERS)
       output: dir = expand("{dir}/trimming",dir=OUTPUT_DIR),
               c1 = expand(["{dir}/trimming/{data1}.clean.fastq.gz"],data1=DATA1.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
@@ -311,11 +338,12 @@ if config[CONF_ANALYSIS_TYPE_TERM] == "quant":
 elif config[CONF_ANALYSIS_TYPE_TERM] == "classic":
   if config[CONF_DATA_TYPE_TERM] == "single":
     rule trimming_by_Trimmomatic:
-      input:  reads = expand("{dir}/{data}",data=DATA,dir=INPUT_DIR)
+      input:  reads = expand("{dir}/data/reads/{data}",data=DATA,dir=OUTPUT_DIR)
       output: dir = expand("{dir}/trimming",dir=OUTPUT_DIR),
               clean = expand(["{dir}/trimming/{data}.clean.fastq.gz"],data=DATA.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR)
       log:    run = expand("{dir}/trimming/run_stats.log",dir=OUTPUT_DIR)
       threads: 4
+      resources:  mem = 5
       params: phred = "-phred33",
               leading = "3",
               trailing = "3",
@@ -326,13 +354,13 @@ elif config[CONF_ANALYSIS_TYPE_TERM] == "classic":
       wrapper:
               "file:/mnt/nfs/shared/999993-Bioda/scripts/martin/test/wrapper_trim_se"
 #      shell:  """
-#              java -jar {TRIMMOMATIC} SE -threads {threads} {params.phred} {input.reads} {output.clean} LEADING:{params.leading} TRAILING:{params.trailing} 
+#              java -Xmx{resources.mem}g -jar {TRIMMOMATIC} SE -threads {threads} {params.phred} {input.reads} {output.clean} LEADING:{params.leading} TRAILING:{params.trailing} 
 #              CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1
 #              """
   else:
     rule trimming_by_Trimmomatic:
-      input:  r1 = expand("{dir}/{data1}",data1=DATA1,dir=INPUT_DIR),
-              r2 = expand("{dir}/{data2}",data2=DATA2,dir=INPUT_DIR)
+      input:  r1 = expand("{dir}/data/reads/{data1}",data1=DATA1,dir=OUTPUT_DIR),
+              r2 = expand("{dir}/data/reads/{data2}",data2=DATA2,dir=OUTPUT_DIR)
       output: dir = expand("{dir}/trimming",dir=OUTPUT_DIR),
               r1p = expand(["{dir}/trimming/{data1}.clean.fastq.gz"],data1=DATA1.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
               r1u = expand(["{dir}/trimming/{data1}.unpaired.fastq.gz"],data1=DATA1.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
@@ -340,6 +368,7 @@ elif config[CONF_ANALYSIS_TYPE_TERM] == "classic":
               r2u = expand(["{dir}/trimming/{data2}.unpaired.fastq.gz"],data2=DATA2.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR)
       log:    run = expand("{dir}/trimming/run_stats.log",dir=OUTPUT_DIR)
       threads: 4
+      resources:  mem = 5
       params: phred = "-phred33",
               leading = "3",
               trailing = "3",
@@ -348,7 +377,7 @@ elif config[CONF_ANALYSIS_TYPE_TERM] == "classic":
               slid_w_1 = "4",
               slid_w_2 = expand("{par}",par=PHRED_FILTER)
       shell:  """
-              java -jar {TRIMMOMATIC} PE -threads {threads} {params.phred} {input.r1} {input.r2} {output.r1p} {output.r1u} {output.r2p} {output.r2u} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1
+              java -Xmx{resources.mem}g -jar {TRIMMOMATIC} PE -threads {threads} {params.phred} {input.r1} {input.r2} {output.r1p} {output.r1u} {output.r2p} {output.r2u} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1
               """
    
             
@@ -391,7 +420,7 @@ rule STAR_alignment:
           trans_bam_tmp = temp(expand("{dir}/aligned/Aligned.toTranscriptome.out.bam",dir=OUTPUT_DIR)),
           trans_bam = expand("{dir}/aligned/Aligned.toTranscriptome.sortedByCoord.out.bam",dir=OUTPUT_DIR)
   threads: 12
-  resources:  mem_mb=30000
+  resources:  mem=30
   params: reads = expand("{dir}/trimming/{data}.clean.fastq.gz",data=DATA.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR) if config[CONF_DATA_TYPE_TERM] == "single" else expand("{dir}/trimming/{data1}.clean.fastq.gz {dir}/trimming/{data2}.clean.fastq.gz",data1=DATA1.strip(".fastq.gz|.fq.gz"),data2=DATA2.strip(".fastq.gz|.fq.gz"),dir=OUTPUT_DIR),
           dir = expand("{dir}/aligned/",dir=OUTPUT_DIR),
           read_command = "zcat",  #might be conditional to input
@@ -455,9 +484,8 @@ rule RSEM_calc_expr:
   log:    run = expand("{dir}/RSEM/RSEM_calc_expr.log",dir=OUTPUT_DIR),
           convert = expand("{dir}/RSEM/RSEM_convert_input.log",dir=OUTPUT_DIR)
   threads: 4
-  resources:  mem_mb=10000
-  params: mem = 10000,
-          paired = "" if config[CONF_DATA_TYPE_TERM] == "single" else "--paired-end",
+  resources:  mem = 10
+  params: paired = "" if config[CONF_DATA_TYPE_TERM] == "single" else "--paired-end",
           extra = "--estimate-rspd --calc-ci --no-bam-output --seed 12345 --forward-prob 0",
           bam = expand("{dir}/aligned/Aligned.toTranscriptome.sortedByCoord.out.bam",dir=OUTPUT_DIR),
           ref = expand("{dir}/RSEM/{data}",dir=OUTPUT_DIR,data=split(ANNOTATION)[1].rstrip(".gz").rstrip(".gtf|.gff|.gff3")),
@@ -465,9 +493,9 @@ rule RSEM_calc_expr:
           prefix = expand("{dir}/RSEM/RSEM_calc_expr",dir=OUTPUT_DIR)
   run:  
           shell("""
-	        #cat <( {SAMTOOLS} view -H {input.bam} ) <( {SAMTOOLS} view -@ {threads} {input.bam} | awk '{{printf "%s", $0 " "; getline; print}}' | sort -S {params.mem}M -T ./ | tr ' ' '\\n' ) | {SAMTOOLS} view -@ {threads} -bS - > {output.help_bam}
+	        #cat <( {SAMTOOLS} view -H {input.bam} ) <( {SAMTOOLS} view -@ {threads} {input.bam} | awk '{{printf "%s", $0 " "; getline; print}}' | sort -S {resources.mem}G -T ./ | tr ' ' '\\n' ) | {SAMTOOLS} view -@ {threads} -bS - > {output.help_bam}
 	        {RSEM_PATH}convert-sam-for-rsem -p {threads} {input.bam} {params.help_bam} &> {log.convert}
-          {RSEM_PATH}rsem-calculate-expression --alignments {params.paired} {params.extra} -p {threads} --ci-memory {params.mem} {output.help_bam} {params.ref} {params.prefix} >& {log.run}
+          {RSEM_PATH}rsem-calculate-expression --alignments {params.paired} {params.extra} -p {threads} --ci-memory {resources.mem}000 {output.help_bam} {params.ref} {params.prefix} >& {log.run}
 	        {RSEM_PATH}rsem-plot-model {params.prefix} {output.pdf}
           """)
 
@@ -506,12 +534,13 @@ rule mapping_qc_preparation:
   shell:  """
           {UCSC_SCRIPTS}/gtfToGenePred -genePredExt -geneNameAsName2 {input.ref} {output.tmp}
           awk '{{print $2"\t"$4"\t"$5"\t"$1"\t0\t"$3"\t"$6"\t"$7"\t0\t"$8"\t"$9"\t"$10}}' {output.tmp} > {output.bed12}
-          ####################
+          
           #### TODO: resolve why single-exon transcripts starting from 1st position make troubles
           cat {output.bed12}  | awk '$7 != 0 || $10 != 1' > {output.tmp} && cp {output.tmp} {output.bed12}
           ####################
           {UCSC_SCRIPTS}/gtfToGenePred -genePredExt {input.ref} {output.tmp2}
           paste <(cut -f 12 {output.tmp2}) <(cut -f 1-10 {output.tmp2}) > {output.flat}
+          ####################
           {SAMTOOLS} view -H {input.bam} > {output.head}
           cat {output.head} > {output.list}
           grep 'gene_biotype \"rRNA' {input.ref} > {output.rrna} || echo $? > /dev/null
@@ -529,9 +558,10 @@ rule mapping_qc_picard:
   params: pdf_for = expand("{dir}/picard/Aligned.sortedByCoord.npc.forward.pdf", dir=OUTPUT_DIR),
           pdf_rev = expand("{dir}/picard/Aligned.sortedByCoord.npc.reverse.pdf", dir=OUTPUT_DIR)
   threads:  4
+  resorces: mem = 5
   run:    
           shell("""
-          java -jar {PICARD}/CollectRnaSeqMetrics.jar \
+          java -Xmx{resources.mem}g -jar {PICARD}/CollectRnaSeqMetrics.jar \
       		  I={input.bam} \
       		  O={output.txt_fwd} \
       		  REF_FLAT={input.flat} \
@@ -540,7 +570,7 @@ rule mapping_qc_picard:
       		  CHART={params.pdf_for} \
       		  VALIDATION_STRINGENCY=LENIENT > {log.run} 2>&1
       		
-          java -jar {PICARD}/CollectRnaSeqMetrics.jar \
+          java -Xmx{resources.mem}g -jar {PICARD}/CollectRnaSeqMetrics.jar \
       		  I={input.bam} \
       		  O={output.txt_rev} \
       		  REF_FLAT={input.flat} \
@@ -591,7 +621,7 @@ rule test:
           with open(input[0],"r") as file:
             data = file.read().strip()
             #data = storage.fetch("myvar")
-            print(data)
+            #print(data)
             if data == 'forward':
               shell(" echo {data} ")
               
@@ -600,20 +630,20 @@ rule test:
             else:
               shell(" echo 'NONE' ")
 
-## TODO: resolve automaticaly the insert gap size from mapper
+## TODO: check the automatic setting of the insert gap size according to the mapper setting
 rule mapping_qc_preseq:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR)
   output: extrap = expand("{dir}/preseq/Aligned.sortedByCoord.yield_estimates.txt",dir=OUTPUT_DIR),
           curve = expand("{dir}/preseq/Aligned.sortedByCoord.estimates.txt",dir=OUTPUT_DIR)
   params: paired = "" if config[CONF_DATA_TYPE_TERM] == "single" else "-pe",
-          seglen = "1000000" #default is only 5000
+          seglen = STAR_MATES_GAP #"1000000" #default is only 5000
   shell:  """
           {PRESEQ} lc_extrap -B {params.paired} -seg_len {params.seglen} -o {output.extrap} {input.bam}
           {PRESEQ} c_curve -B {params.paired} -seg_len {params.seglen} -o {output.curve} {input.bam}
           """
 
 
-rule summary_biotypes:                              ################## CHECK WITH HONZA: -s 0/1/2 #####################
+rule summary_biotypes:                              ################## TODO: CHECK WITH HONZA: -s 0/1/2 #####################
   input:  ref = expand("{data}",data=ANNOTATION),
           bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR)
   output: fwd = expand("{dir}/mapped_QC/featureCounts.quantSeq.fwd.biotype_counts.txt",dir=OUTPUT_DIR),
@@ -699,7 +729,7 @@ rule RSeQC_RPKM_saturation:
   run:  
           with open(input[0],"r") as file:
             data = file.read().strip()
-            print(data)
+            #print(data)
             if data == 'forward':
               if config[CONF_DATA_TYPE_TERM] == "single":
                 shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -d '++,--' -o {params.prefix} > {log.run} 2>&1")
@@ -714,15 +744,15 @@ rule RSeQC_RPKM_saturation:
               shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -o {params.prefix} > {log.run} 2>&1 ")
 
 
-###### TODO: resolve the used resources (memmory in this case)
 rule picard_mark_duplicates:
   input:  bam = expand("{dir}/aligned/Aligned.sortedByCoord.out.bam",dir=OUTPUT_DIR)
   output: bam = expand("{dir}/mapped_QC/Aligned.sortedByCoord.markDups.bam",dir=OUTPUT_DIR),
           mtx = expand("{dir}/mapped_QC/Aligned.sortedByCoord.markDups_metrics.txt",dir=OUTPUT_DIR)
   log:    run = expand("{dir}/mapped_QC/Aligned.sortedByCoord.markDups.log",dir=OUTPUT_DIR)
   threads:  4
+  resources:  mem = 5
   shell:  """
-          java -Xmx2g -jar {PICARD}/MarkDuplicates.jar \
+          java -Xmx{resources.mem}g -jar {PICARD}/MarkDuplicates.jar \
 	        INPUT={input.bam} \
 	        OUTPUT={output.bam} \
 	        METRICS_FILE={output.mtx} \
@@ -744,7 +774,7 @@ rule dupradar_count_duplicates:
   run:    
           with open(input[0],"r") as file:
             data = file.read().strip()
-            print(data)
+            #print(data)
             if data == 'forward':
               if config[CONF_DATA_TYPE_TERM] == "single":
                 shell(" {DUPRADAR} {input.bam} {input.ref} 'single' 1 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")

@@ -1,6 +1,7 @@
 # BIODA_pipeline
-This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.readthedocs.io/en/stable/index.html) for **RNA-Seq**, **VCF**, ... analysis.
+This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.readthedocs.io/en/stable/index.html) for **RNA-Seq**, **WGS**, ... analysis.
 
+## Configuration
 In order to use it, you should specify your own *config.yaml* file of the form:
 ```yaml
 # use one of [single|paired]

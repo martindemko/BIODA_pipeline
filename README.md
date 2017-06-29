@@ -1,5 +1,5 @@
 # BIODA_pipeline
-This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.readthedocs.io/en/stable/index.html) for **RNA-Seq**, **WGS**, ... analysis.
+This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.readthedocs.io/en/stable/index.html) for **RNA-Seq**, **WGS**, ... analysis. Currently, the latest version is `snakefile_latest`.
 
 ## Configuration
 In order to use it, you should specify your own `config.json` file. It has form of named configuration features (enclosed in double quotes) containing list of strings (values, enclosed by double quotes) separated by comma symbol. Each string belongs to different experiment and the number of all strings in a list defines also the total number of experiments and should be the same for all features (even if there would be an empty string in some cases). First we explain necessary configuration features on real example but remember that json doesn't allow commentary (lines started with symbol #) so all the next commentary lines are added just for better understanding and must be deleted:

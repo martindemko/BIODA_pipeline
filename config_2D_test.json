@@ -1,0 +1,17 @@
+{"index":  ["S1", "S2", "S3"],
+"data_type": ["single", "paired", "paired"],
+"analysis_type": ["classic", "classic", "quant"],
+"material":["RNA","RNA","RNA"],
+"species":["trichinella","trichinella","trichinella"],
+"type":["Unknown","Unknown","Unknown"],
+"output_dir": ["samples_2D_test", "samples_2D_test", "samples_2D_test_new"],
+"input_dir": ["/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data"],
+"sample": ["SRR518926_shorter", "SRR609196_shorter", "SRR609197_shorter"],
+"strands": ["", "_R1,_R2", "_1,_2"],
+"RNA.fq.data1": ["/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data/SRR518926_shorter.fastq.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data/SRR609196_shorter_R1.fastq.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data/SRR609197_shorter_1.fastq.gz"],
+"RNA.fq.data2": ["", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data/SRR609196_shorter_R2.fastq.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/TS_data/SRR609197_shorter_2.fastq.gz"],
+"genome": ["/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.dna.genome.copy.fa.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.dna.genome.fasta.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.dna.genome.fasta.gz"],
+"annotation": ["/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.new.gtf.gz", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.gff3", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Trichinella_spiralis.Tspiralis1.27.gff3"],
+"adapters": ["", "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/adapters_merge.fa", ""],
+"target": ["test", "test", "test"]
+}

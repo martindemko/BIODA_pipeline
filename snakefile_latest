@@ -1,0 +1,888 @@
+import math
+import subprocess
+import json
+import re
+import os.path
+from snakemake.utils import R
+from snakemake.utils import report
+from os.path import split
+
+#shell(" python2.7 parse_config_files.py ")
+
+workdir: "/mnt/nfs/shared/999993-Bioda/scripts/martin/test"
+configfile: "updated_user_configuration_file.json"
+
+########################################
+# DEFINITION OF uniq FUNCTIONS FOR list
+#
+def uniq(input):
+  output = []
+  for x in input:
+    if x not in output:
+      output.append(x)
+  return output
+  
+def uniq_idx(input):
+  output = []
+  idx = []
+  for x in range(len(input)):
+    if input[x] not in output:
+      output.append(input[x])
+      idx.append(x)
+  return idx
+  
+
+########################################
+# DEFINITION OF DEFAULT PARAMETERS
+#
+# DEFAULTS = {'type'         : 'normal',
+#             'DNA.BAM.files': 'cool',
+#             'sensitivity'  : 25}
+
+###########################################
+# READING OF CONFIG FILE PARAMTERS
+#
+# with open('../../../projects/chromotripsis/chromotripse_samples.json') as json_data:
+#     CONFIG = json.load(json_data)
+
+###########################################
+# DEFINITION OF FINAL CONFIG LIST
+#
+#.split() is used if it's neccesary to use more than one option
+# for feature in CONFIG.keys():
+#     feature_list = CONFIG[feature]
+#     for i in range(0, len(feature_list)):
+#         if feature_list[i] == None:
+#             if feature in DEFAULTS:
+#                 CONFIG[feature][i] = DEFAULTS[feature]
+#             else:
+#                 sys.exit(print "Neccesery parameter not set.")
+# 
+# for feature in set(DEFAULTS.keys()) - set(CONFIG.keys()):
+#     CONFIG[feature]=[DEFAULTS[feature]] * len(CONFIG['index'])
+# 
+# PAT_ID = config["Patient.ID"]
+
+########################################
+# DEFINITION OF INPUT SETTINGS NAMES
+#
+CONF_INDEX_TERM = "index"
+CONF_GENOME_TERM = "genome"
+CONF_ANALYSIS_TYPE_TERM = "analysis_type"
+CONF_DATA_TYPE_TERM = "data_type"
+CONF_MATERIAL_TERM = "material"
+CONF_SPECIES_TYPE_TERM = "species"
+CONF_ORGANISM_TYPE_TERM = "organism_type"
+CONF_TARGET_TERM = "target"
+CONF_SAMPLE_TERM = "sample"
+CONF_OUTPUT_DIR_TERM = "output_dir"
+CONF_INPUT_DIR_TERM = "input_dir"
+CONF_ANNOTATION_TERM = "annotation"
+CONF_GENOME_INDEX_TERM = "genome_index"
+CONF_PE1_DATA_TERM = "RNA.fq.data1"
+CONF_PE2_DATA_TERM = "RNA.fq.data2"
+CONF_PE_STRANDS_TERM = "strands"
+CONF_STAR_PARAMS_TERM = "STAR_params"
+CONF_STAR_ALIGN_INTRON_MAX_TERM = "STAR_intron_max"
+CONF_STAR_ALIGN_MATES_GAP_TERM = "STAR_mates_gap"
+CONF_ADAPTERS_TERM = "adapters"
+
+
+###########################################
+# DEFINITION OF INPUT SETTINGS VARIABLES
+#
+#.split() is used if it's neccesary to use more than one option
+IDS = config[CONF_INDEX_TERM]
+RAW_GENOME_FILE = config[CONF_GENOME_TERM]
+FULL_ANNOTATION = config[CONF_ANNOTATION_TERM]
+ANALYSIS_TYPE  = config[CONF_ANALYSIS_TYPE_TERM]
+DATA_TYPE = config[CONF_DATA_TYPE_TERM]
+MATERIAL = config[CONF_MATERIAL_TERM]
+ORGANISM_TYPE = config[CONF_ORGANISM_TYPE_TERM]
+TARGET = config[CONF_TARGET_TERM]
+SAMPLES = config[CONF_SAMPLE_TERM]
+INPUT_DIR = config[CONF_INPUT_DIR_TERM]
+OUTPUT_DIR_DICT = dict()
+for idx, val in enumerate(config[CONF_OUTPUT_DIR_TERM]): OUTPUT_DIR_DICT.update({IDS[idx]:val})
+OUTPUT_DIR = list(OUTPUT_DIR_DICT.values())
+GENOME_INDEX = config[CONF_GENOME_INDEX_TERM]
+INPUT_STRANDS = dict()
+for idx, val in enumerate(config[CONF_PE_STRANDS_TERM]): INPUT_STRANDS.update({IDS[idx]:val.split(",")})
+FQ_DATA1 = dict()
+for idx, val in enumerate(config[CONF_PE1_DATA_TERM]): FQ_DATA1.update({IDS[idx]:val})
+FQ_DATA2 = dict()
+for idx, val in enumerate(config[CONF_PE2_DATA_TERM]): FQ_DATA2.update({IDS[idx]:val})
+FQ_DATA_INFIX_LIST = list({k: re.sub(INPUT_STRANDS[k][0]+"$","",re.sub(".f(ast)?q.gz$","",split(v)[1]))+"_R1" if FQ_DATA2[k] != "" else re.sub(".f(ast)?q.gz$","",split(v)[1])+".single" for k, v in FQ_DATA1.items()}.items())+list({k: re.sub(INPUT_STRANDS[k][1]+"$","",re.sub(".f(ast)?q.gz$","",split(v)[1]))+"_R2" for k, v in FQ_DATA2.items() if v}.items())
+ADAPTERS = config[CONF_ADAPTERS_TERM]
+STAR_INTRON_MAX = config[CONF_STAR_ALIGN_INTRON_MAX_TERM]
+STAR_MATES_GAP = config[CONF_STAR_ALIGN_MATES_GAP_TERM]
+STAR_PARAMS = config[CONF_STAR_PARAMS_TERM]
+ 
+ZIP_GENOME_FILE = list()
+for gg in RAW_GENOME_FILE: ZIP_GENOME_FILE.append(split(gg)[1])
+GENOME_FILE = list()
+for gg in ZIP_GENOME_FILE: GENOME_FILE.append(gg.rstrip(".gz"))
+GENOME_PREFIX = list()
+for gg in GENOME_FILE: GENOME_PREFIX.append(gg.rstrip(".fa|.fasta"))
+OUT_GENOMES_LIST = list(map(lambda item: item[1]+"/data/genome/"+item[0], zip(ZIP_GENOME_FILE, OUTPUT_DIR)))
+IN_GENOMES_LIST, OUT_GENOMES_LIST = list(zip(*uniq(list(zip(RAW_GENOME_FILE, OUT_GENOMES_LIST)))))
+
+ANNOTATION_PATH = list()
+for an in FULL_ANNOTATION: ANNOTATION_PATH.append(split(an)[0])
+ZIP_ANNOTATION = list()
+for an in FULL_ANNOTATION: ZIP_ANNOTATION.append(split(an)[1])
+ANNOTATION_FILE = list()
+for an in ZIP_ANNOTATION: ANNOTATION_FILE.append(an.rstrip(".gz"))  # TODO: another extensions might be added (e.g., .bz2, .zip, .7z)
+ANNOTATION = list()
+for an in ANNOTATION_FILE: ANNOTATION.append(an.rstrip(".gtf|.gff|.gff3"))
+OUT_ANNOTATION_LIST = list(map(lambda x, o: o+"/data/reference/"+x, ZIP_ANNOTATION, OUTPUT_DIR))
+IN_ANNOTATION_LIST, OUT_ANNOTATION_LIST = list(zip(*uniq(list(zip(FULL_ANNOTATION, OUT_ANNOTATION_LIST)))))
+
+STRANDS = ["forward","reverse"]
+
+####################################
+# DEFINITION OF TOOLS
+#
+WRAPPERS_PATH = "file:/mnt/nfs/shared/999993-Bioda/scripts/martin/test/wrappers/"
+DELLY = "delly"
+FASTQC = "fastqc"
+GLOBAL_ADAPTERS = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/adapters_merge.fa"
+REAPER_SRC = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/reaper-15-065/src"
+TRIMMOMATIC = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/trimmomatic-master/classes/trimmomatic.jar"
+GFFREAD = "gffread"
+STAR = "STAR"
+SAMTOOLS = "samtools"
+RSEM_PATH = ""
+BBMAP = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/bbmap"
+FEATURE_COUNTS = "featureCounts"
+UCSC_SCRIPTS = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools"
+GTF_TO_BED12 = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/gtf2bed12.py"
+PICARD = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/picard-tools-1.119"
+PICARD_JAR = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/picard-tools-1.119/picard-1.119.jar"
+PRESEQ = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/preseq_v2.0.2/preseq" #"/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/preseq_v2.0.1/preseq"
+RSEQC = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/RSeQC-2.6.4/build/scripts-2.7"
+DUPRADAR = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/dupRadar.R"
+
+PHRED_FILTER = 5  # Trim the 3' end of read if four consequent bases have average base quality smaller than this value
+LEN_FILTER = 20   # Filter sequences shorter than this value after quality trimming
+RD_LENGTH = 75    # Trim all sequences to this maximal length - depends on experiment design and I like to trim them to specified length
+
+
+####################################
+# DEFINITION OF FINAL RULES
+#
+
+
+# ALL:
+# so far all we can manage (preprocessing, trimming, mapping)
+#
+rule all:
+  input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/2nd_qc/"+item[1]+".clean_fastqc.html", FQ_DATA_INFIX_LIST)),
+          expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_calc_expr.pdf", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/FeatureCounts/{sample}.G={genome}.R={ref}/feature_counts.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/picard/{sample}.G={genome}.R={ref}/strandness.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          #expand("{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.estimates.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.fwd.biotype_counts.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          #expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_distribution.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.RPKM_saturation.rawCount.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_duplication.seq.DupRate.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.infer_experiment.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.bam_stat.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_annotation.junction.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar_dupMatrix.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          # expand("{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.estimates.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          # expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_distribution.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION)
+         
+    
+# PREPROCESSING:
+# involves organising of input data, 1st FastQC run and adapter check
+#
+rule preprocessing:
+  input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+          # uniq(expand("{dir}/data/genome/{genome}.fa", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX)),
+          # uniq(expand("{dir}/data/reference/{ref}.gtf", zip, ref=ANNOTATION, dir=OUTPUT_DIR))
+          
+
+# TRIMMING:
+# involves trimming, 2nd FastQC run and all preceding analysis
+#
+rule trimming:
+  input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/2nd_qc/"+item[1]+".clean_fastqc.html", FQ_DATA_INFIX_LIST)),
+          # uniq(expand("{dir}/data/genome_index/G={genome}.R={ref}", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX, ref=ANNOTATION)),
+          # uniq(expand("{dir}/data/genome/{genome}.fa", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX)),
+          # uniq(expand("{dir}/data/reference/{ref}.gtf", zip, ref=ANNOTATION, dir=OUTPUT_DIR)),
+          
+
+# MAPPING:
+# involves genome index management, reads mapping, bam indexing, mapping QC and all preceding analysis
+#
+rule mapping:
+  input:  expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/2nd_qc/"+item[1]+".clean_fastqc.html", FQ_DATA_INFIX_LIST))
+
+
+# JUST FOR TESTING PURPOUSES (FREE TO USE)
+#
+rule test:
+  input:  # expand("{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.estimates.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          # expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_distribution.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.fwd.biotype_counts.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_calc_expr.pdf", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/FeatureCounts/{sample}.G={genome}.R={ref}/feature_counts.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/data/reads/"+item[1]+".fq.gz", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/2nd_qc/"+item[1]+".clean_fastqc.html", FQ_DATA_INFIX_LIST)),
+          expand("{dir}/picard/{sample}.G={genome}.R={ref}/strandness.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          uniq(expand("{dir}/data/genome_index/G={genome}.R={ref}", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX, ref=ANNOTATION)),
+          uniq(expand("{dir}/data/genome/{genome}.fa", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX)),
+          uniq(expand("{dir}/data/reference/{ref}.gtf", zip, ref=ANNOTATION, dir=OUTPUT_DIR)),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.RPKM_saturation.rawCount.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_duplication.seq.DupRate.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.infer_experiment.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.bam_stat.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_annotation.junction.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
+          expand("{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar_dupMatrix.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION)
+          
+rule test_gen_index:
+  input:  expand("{dir}/data/genome_index/G={genome}.R={ref}", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX, ref=ANNOTATION)
+
+####################################
+# DEFINITION OF ZERO-STEP RULES (COPY OF DATA, FIRST QC, ADAPTERS CHECK)
+#
+
+# READS MANAGER RULES
+#       
+rule copy_fq_reads:
+  input:  ancient(list(filter(None, list(FQ_DATA1.values()) + list(FQ_DATA2.values()))))
+  output: list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/data/reads/"+item[1]+".fq.gz", FQ_DATA_INFIX_LIST))
+  threads:  1
+  run:
+    for inp, out in zip(input, output):
+      shell(" ln {inp} {out} ")
+      
+
+# GENOMES MANAGER RULES
+#       
+### TODO: add check between genome and annotation (e.g., chromosome names)
+### TODO: do it better for each experiment own copy of genome_index
+rule copy_genome:
+  input:  IN_GENOMES_LIST
+  output: OUT_GENOMES_LIST
+  threads:  1
+  run:
+    for inp, out in zip(input, output):
+        shell(" ln {inp} {out} ")
+          
+rule unzip_genome:
+  input:  "{dir}/data/genome/{data}.gz"
+  output: "{dir}/data/genome/{data}"
+  threads:  4
+  run:
+    shell(" unpigz -p {threads} -c {input} > {output} ")
+          
+rule rename_genome:
+  input:  "{dir}/data/genome/{data}.fasta"
+  output: "{dir}/data/genome/{data}.fa"
+  run:
+    shell(" mv {input} {output} ")
+    
+
+# REFERENCES MANAGER RULES
+#       
+rule copy_ref:
+  input:  IN_ANNOTATION_LIST
+  output: OUT_ANNOTATION_LIST
+  run:
+    for inp, out in zip(input, output):
+      shell(" ln {inp} {out} ")
+            
+rule unzip_ref:
+  input:  "{dir}/data/reference/{ref}.gz"
+  output: "{dir}/data/reference/{ref}"
+  threads:  4
+  run:
+    shell(" unpigz -p {threads} -c {input} > {output} ")
+          
+rule ref_gff3_to_gtf:
+  input:  "{dir}/data/reference/{ref}.gff3"
+  output: "{dir}/data/reference/{ref}.gtf"
+  run:
+    shell(" {GFFREAD} {input} -T -o {output} ")
+                      
+rule ref_gff_to_gtf:
+  input:  "{dir}/data/reference/{ref}.gff"
+  output: "{dir}/data/reference/{ref}.gtf"
+  run:
+    shell(" {GFFREAD} {input} -T -o {output} ")
+
+
+# FASTQC RULE
+#       
+rule first_fastqc:
+  input:  reads = "{dir}/data/reads/{sample}.fq.gz"
+  output: html = "{dir}/1st_qc/{sample}_fastqc.html"
+  log:    run = "{dir}/1st_qc/{sample}.run_stats.log"
+  params: extra = "--noextract --format fastq --nogroup",
+          prefix = "{dir}/1st_qc/"
+  threads: 4
+  run:  
+    shell(" {FASTQC} -o {params.prefix} {params.extra} --threads {threads} {input.reads} > {log.run} 2>&1 ")
+        
+          
+# ADAPTERS CHECK RULES
+#       
+rule check_adapters_by_minion:
+  input:  reads = "{dir}/data/reads/{sample}.fq.gz"
+  output: minion = "{dir}/minion/{sample}.minion.fa"
+  log:    run = "{dir}/minion/{sample}.log"
+  params: minion = "-show 3 -write-fasta"
+  run:    
+    shell(" {REAPER_SRC}/minion search-adapter -i {input.reads} {params.minion} {output.minion} > {log.run} 2>&1 ")
+
+rule check_adapters_by_swan:
+  input:  minion = "{dir}/minion/{sample}.minion.fa"
+  output: swan = "{dir}/minion/{sample}.minion.compare"
+  run:  
+    shell(" {REAPER_SRC}/swan -r {GLOBAL_ADAPTERS} -q {input.minion} > {output.swan} 2>&1 ")
+
+
+
+#########################################################
+# DEFINITION OF FIRST-STEP RULES (TRIMMING, SECOND QC)
+#
+
+rule trimming_SE:
+  input:  reads = "{dir}/data/reads/{sample}.single.fq.gz"
+  output: clean = "{dir}/trimming/{sample}.single.clean.fq.gz"
+  log:    run = "{dir}/trimming/{sample}.run_stats.log",
+          stats = "{dir}/trimming/{sample}.cont_stats.log",
+          rpkm = "{dir}/trimming/{sample}.rpkm_stats.log",
+          kmers = "{dir}/trimming/{sample}.kmers_stats.log"
+  threads: 4  # -Xmx10g for JVM is possible
+  resources:  mem = 5
+  params: phred = "-phred33",
+          leading = "3",
+          trailing = "3",
+          crop = RD_LENGTH,
+          minlen = LEN_FILTER,
+          slid_w_1 = "4",
+          slid_w_2 = PHRED_FILTER,
+          bb_kmers_extra = "ktrim=r literal=GGGGGGGGG,AAAAAAAAA k=13 useshortkmers=t mink=5",
+          bb_extra = "qtrim=rl trimq=10 minlength=20",
+          waste = "{dir}/trimming/{sample}.single.trimmed.fq.gz"
+  run:
+    idx = SAMPLES.index(wildcards.sample)
+    adapters = "" if ADAPTERS[idx] == "" else ADAPTERS[idx]
+    if adapters == "": print("No adapters Fasta file was given for sample: "+wildcards.sample)
+    if MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "quant":
+      if adapters != "": adapters = "ref="+adapters
+      kmers_extra = params.bb_kmers_extra if adapters != "" else ""
+      shell("{BBMAP}/bbduk.sh in={input.reads} out={output.clean} outm={params.waste} {adapters} stats={log.stats} rpkm={log.rpkm} "
+            "dump={log.kmers} threads={threads} overwrite=true {kmers_extra} {params.bb_extra} > {log.run} 2>&1 ")
+            
+    elif MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "classic":
+      if adapters != "": adapters = "ILLUMINACLIP:"+adapters+":2:30:10" # TODO: check for better settings (see: http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf starting at page 5, or http://www.usadellab.org/cms/?page=trimmomatic)
+      shell("java -Xmx{resources.mem}g -jar {TRIMMOMATIC} SE -threads {threads} {params.phred} {input.reads} {output.clean} {adapters} "
+            "LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} "
+            "MINLEN:{params.minlen} > {log.run} 2>&1 ")
+            
+    elif MATERIAL[idx] == "DNA":
+      print("Some trimming for DNA analysis.")
+      
+    else:
+      sys.exit(print("Unknown type of material or analysis!"))
+      
+      
+rule trimming_PE:
+  input:  r1 = "{dir}/data/reads/{sample}_R1.fq.gz",
+          r2 = "{dir}/data/reads/{sample}_R2.fq.gz"
+  output: c1 = "{dir}/trimming/{sample}_R1.clean.fq.gz",
+          c2 = "{dir}/trimming/{sample}_R2.clean.fq.gz"
+  log:    run = "{dir}/trimming/{sample}.run_stats.log",
+          stats = "{dir}/trimming/{sample}.cont_stats.log",
+          rpkm = "{dir}/trimming/{sample}.rpkm_stats.log",
+          kmers = "{dir}/trimming/{sample}.kmers_stats.log"
+  threads: 4
+  resources:  mem = 5
+  params: phred = "-phred33",
+          leading = "3",
+          trailing = "3",
+          crop = RD_LENGTH,
+          minlen = LEN_FILTER,
+          slid_w_1 = "4",
+          slid_w_2 = PHRED_FILTER,
+          bb_kmers_extra = "ktrim=r literal=GGGGGGGGG,AAAAAAAAA k=13 useshortkmers=t mink=5",
+          bb_extra = "qtrim=rl trimq=10 minlength=20",
+          w1 = "{dir}/trimming/{sample}_R1.trimmed.fq.gz",
+          w2 = "{dir}/trimming/{sample}_R2.trimmed.fq.gz",
+          sing = "{dir}/trimming/{sample}.singleton.fq.gz",
+          r1u = "{dir}/trimming/{sample}_R1.unpaired.fq.gz",
+          r2u = "{dir}/trimming/{sample}_R2.unpaired.fq.gz"
+  run:
+    idx = SAMPLES.index(wildcards.sample)
+    adapters = "" if ADAPTERS[idx] == "" else ADAPTERS[idx]
+    if adapters == "": print("No adapters Fasta file was given for sample: "+wildcards.sample)
+    if MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "quant":
+      if adapters != "": adapters = "ref="+adapters
+      kmers_extra = params.bb_kmers_extra if adapters != "" else ""
+      shell("{BBMAP}/bbduk.sh in={input.r1} in2={input.r2} out={output.c1} out2={output.c2} outm={params.w1} outm2={params.w2} "
+            "outs={params.sing} {adapters} stats={log.stats} rpkm={log.rpkm} dump={log.kmers} threads={threads} overwrite=true "
+            "{kmers_extra} {params.bb_extra} > {log.run} 2>&1 ")
+            
+    elif MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "classic":
+      if adapters != "": adapters = "ILLUMINACLIP:"+adapters+":2:30:10" # TODO: check for better settings (see: http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf starting at page 5, or http://www.usadellab.org/cms/?page=trimmomatic)
+      shell("java -Xmx{resources.mem}g -jar {TRIMMOMATIC} PE -threads {threads} {params.phred} {input.r1} {input.r2} {output.c1} "
+            "{params.r1u} {output.c2} {params.r2u}  {adapters} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} "
+            "SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1 ")
+            
+    elif MATERIAL[idx] == "DNA":
+      print("Some trimming for DNA analysis.")
+      
+    else:
+      sys.exit(print("Unknown type of material or analysis!"))
+      
+
+rule second_fastqc:
+  input:  reads = "{dir}/trimming/{sample}.fq.gz"
+  output: html = "{dir}/2nd_qc/{sample}_fastqc.html"
+  log:    run = "{dir}/2nd_qc/{sample}.run_stats.log"
+  params: extra = "--noextract --format fastq --nogroup",
+          prefix = "{dir}/2nd_qc/"
+  threads: 4
+  run:  
+    shell(" {FASTQC} -o {params.prefix} {params.extra} --threads {threads} {input.reads} > {log.run} 2>&1 ")
+
+
+#########################################################
+# DEFINITION OF MAPPING RULES
+#
+rule STAR_gen_index:
+  input:  "{dir}/data/genome/{genome}.fa",
+          ref = "{dir}/data/reference/{ref}.gtf"
+  output: "{dir}/data/genome_index/G={genome}.R={ref}"
+  log:    "{dir}/data/genome_index/G={genome}.R={ref}.run_stats.log"
+  threads:  12
+  params: extra = ""
+  run:  
+          name = "G="+wildcards.genome+".R="+wildcards.ref
+          ilist = list(map(lambda x: split(x)[1], GENOME_INDEX))
+          if(name in ilist):
+            index = GENOME_INDEX[ilist.index(name)]
+            shell(" ln -sr {index} {output} ")
+          else:
+            # GENOME_INDEX.append(output)
+            # print(GENOME_INDEX)
+            help = subprocess.Popen("grep -v '>' " + input[0] + " | wc -m",shell=True,stdout=subprocess.PIPE).communicate()[0]
+            STAR_GENOME_BASES_LOG = min(14,math.floor(math.log(float(int(help)),2)/2-1))
+            shell(" mkdir -p {output} ")
+            shell(" {STAR} --runMode genomeGenerate --runThreadN {threads} --genomeDir {output} --genomeFastaFiles {input[0]} "
+                  " --sjdbGTFfile {input.ref} --genomeSAindexNbases {STAR_GENOME_BASES_LOG} {params.extra} > {log} 2>&1 ")
+
+rule STAR_alignment_single:
+  input:  reads = "{dir}/trimming/{sample}.single.clean.fq.gz",
+          gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
+          ref = "{dir}/data/reference/{ref}.gtf"
+  output: gen_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          trans_bam_tmp = temp("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.out.bam"),
+          trans_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam"
+  threads: 12
+  resources:  mem=30
+  params: dir = "{dir}/aligned/{sample}.G={genome}.R={ref}/",
+          read_command = "zcat",  #might be conditional to input
+          sort_RAM = 10000000000, #could be also a config parameter
+          sam_type = "--outSAMtype BAM SortedByCoordinate",
+          quant = "--quantMode TranscriptomeSAM"
+  run:
+    idx = SAMPLES.index(wildcards.sample)
+    splicing = "--alignIntronMax "+STAR_INTRON_MAX[idx]
+    mates_gap = "--alignMatesGapMax "+STAR_MATES_GAP[idx]
+    extra = STAR_PARAMS[idx]
+    shell(" {STAR} --runMode alignReads --runThreadN {threads} --genomeDir {input.gen_index} --readFilesIn {input.reads} "
+          " --readFilesCommand {params.read_command} --sjdbGTFfile {input.ref} --outFileNamePrefix {params.dir} {params.sam_type} "
+          " --limitBAMsortRAM {params.sort_RAM} {splicing} {mates_gap} {params.quant} {extra} ")
+    shell(" {SAMTOOLS} sort -@ {threads} {output.trans_bam_tmp} -o {output.trans_bam} ")
+
+rule STAR_alignment_paired:
+  input:  r1 = "{dir}/trimming/{sample}_R1.clean.fq.gz",
+          r2 = "{dir}/trimming/{sample}_R2.clean.fq.gz",
+          gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
+          ref = "{dir}/data/reference/{ref}.gtf"
+  output: gen_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          trans_bam_tmp = temp("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.out.bam"),
+          trans_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam"
+  threads:  12
+  resources:  mem=30
+  params: dir = "{dir}/aligned/{sample}.G={genome}.R={ref}/",
+          read_command = "zcat",  #might be conditional to input
+          sort_RAM = 10000000000, #could be also a config parameter
+          sam_type = "--outSAMtype BAM SortedByCoordinate",
+          quant = "--quantMode TranscriptomeSAM"
+  run:  
+    idx = SAMPLES.index(wildcards.sample)
+    splicing = "--alignIntronMax "+STAR_INTRON_MAX[idx]
+    mates_gap = "--alignMatesGapMax "+STAR_MATES_GAP[idx]
+    extra = STAR_PARAMS[idx]
+    shell(" {STAR} --runMode alignReads --runThreadN {threads} --genomeDir {input.gen_index} --readFilesIn {input.r1} {input.r2} "
+          " --readFilesCommand {params.read_command} --sjdbGTFfile {input.ref} --outFileNamePrefix {params.dir} {params.sam_type} "
+          " --limitBAMsortRAM {params.sort_RAM} {splicing} {mates_gap} {params.quant} {extra} ")
+    shell(" {SAMTOOLS} sort -@ {threads} {output.trans_bam_tmp} -o {output.trans_bam} ")
+
+
+rule samtools_bam_index:
+  input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
+  output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam.bai"
+  threads:  12
+  run:  
+    shell(" {SAMTOOLS} index -@ {threads} {input} ")
+    
+
+rule SAM_to_BAM:
+  input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.sam"
+  output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
+  threads:  12
+  run:  
+    shell("""
+      {SAMTOOLS} view -@ {threads} -b {input} > {output}
+      rm {input}
+    """)
+          
+rule BAM_header:
+  input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
+  output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam.header"
+  threads:  12
+  run:  
+    shell(" {SAMTOOLS} view -H {input} > {output} ")
+
+
+###############################################
+# DEFINITION OF MAPPING QC RULES
+#
+rule mapping_qc_ref_preparation:
+  input:  ref = "{dir}/data/reference/{ref}.gtf"
+  output: tmp = temp("{dir}/mapped_QC/temp_{ref}.gtf"),
+          bed12 = "{dir}/mapped_QC/{ref}.genes.bed12",
+          tmp2 = temp("{dir}/mapped_QC/temp_{ref}.refFlat"),
+          flat = "{dir}/mapped_QC/{ref}.refFlat.txt"
+  run:  
+    shell("""
+      {UCSC_SCRIPTS}/gtfToGenePred -genePredExt -geneNameAsName2 {input.ref} {output.tmp}
+      awk '{{print $2"\t"$4"\t"$5"\t"$1"\t0\t"$3"\t"$6"\t"$7"\t0\t"$8"\t"$9"\t"$10}}' {output.tmp} > {output.bed12}
+      #### TODO: resolve why single-exon transcripts starting from 1st position make troubles
+      cat {output.bed12}  | awk '$7 != 0 || $10 != 1' > {output.tmp} && cp {output.tmp} {output.bed12}
+      ####################
+      {UCSC_SCRIPTS}/gtfToGenePred -genePredExt {input.ref} {output.tmp2}
+      paste <(cut -f 12 {output.tmp2}) <(cut -f 1-10 {output.tmp2}) > {output.flat}
+    """)
+          
+rule mapping_qc_ref_preparation_2:
+  input:  ref = "{dir}/data/reference/{ref}.gtf",
+          head = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.header"
+  output: list = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/rRNA.intervalListBody.txt",
+          rrna = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/rRNA.gtf"
+  run:  
+    shell("""
+      cat {input.head} > {output.list}
+      grep 'gene_biotype \"rRNA' {input.ref} > {output.rrna} || echo $? > /dev/null
+      cut -s -f 1,4,5,7,9 {output.rrna} >> {output.list}
+    """)
+
+rule mapping_qc_picard:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bai = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.bai",
+          flat = "{dir}/mapped_QC/{ref}.refFlat.txt",
+          list = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/rRNA.intervalListBody.txt"
+  output: txt_fwd = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.forward.txt",
+          txt_rev = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.reverse.txt"
+  log:    run = "{dir}/picard/{sample}.G={genome}.R={ref}/picard_run_stats.log"
+  params: pdf_for = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.npc.forward.pdf",
+          pdf_rev = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.npc.reverse.pdf"
+  threads:  6
+  resources: mem = 5
+  run:    
+    shell("""
+      java -Xmx{resources.mem}g -jar {PICARD}/CollectRnaSeqMetrics.jar \
+  		  I={input.bam} \
+  		  O={output.txt_fwd} \
+  		  REF_FLAT={input.flat} \
+  		  STRAND=FIRST_READ_TRANSCRIPTION_STRAND \
+  		  RIBOSOMAL_INTERVALS={input.list} \
+  		  CHART={params.pdf_for} \
+  		  VALIDATION_STRINGENCY=LENIENT > {log.run} 2>&1
+  		
+      java -Xmx{resources.mem}g -jar {PICARD}/CollectRnaSeqMetrics.jar \
+  		  I={input.bam} \
+  		  O={output.txt_rev} \
+  		  REF_FLAT={input.flat} \
+  		  STRAND=SECOND_READ_TRANSCRIPTION_STRAND \
+  		  RIBOSOMAL_INTERVALS={input.list} \
+  		  CHART={params.pdf_rev} \
+  		  VALIDATION_STRINGENCY=LENIENT > {log.run} 2>&1
+    """)
+          
+
+rule mapping_qc_strandness:
+  input:  txt_fwd = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.forward.txt",
+          txt_rev = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.reverse.txt"
+  output: "{dir}/picard/{sample}.G={genome}.R={ref}/strandness.txt"
+  run:    
+    R("""
+      table <- read.table("{input.txt_fwd}", sep="\t", as.is=T, nrows = 2)  # TODO: nrows is temporary solution, should be done better
+      fwd <- as.numeric(table[2,"V18"])
+      table <- read.table("{input.txt_rev}", sep="\t", as.is=T, nrows = 2)  # TODO: nrows is temporary solution, should be done better
+      rev <- as.numeric(table[2,"V18"])
+      data <- "none"
+      if(fwd > rev) {{ 
+        if(fwd >= 0.75) data <- "forward" 
+        else if(fwd < 0.6 && rev < 0.6) data <- "none" 
+        else {{
+          data <- "none"
+          print("Warning: Strandness is not obviously recognizable (between 0.6 and 0.75 for forward sense), hence, data are supposed to be non-stranded!") 
+        }}
+      }} else {{ 
+        if(rev >= 0.75) data <- "reverse" 
+        else if(fwd < 0.6 && rev < 0.6) data <- "none" 
+        else {{
+          data <- "none"
+          print("Warning: Strandness is not obviously recognizable (between 0.6 and 0.75 for reverse sense), hence, data are supposed to be non-stranded!") 
+        }}
+      }}
+      write(data, file = '{output}')
+    """)
+    
+## TODO: check the automatic setting of the insert gap size according to the mapper setting
+## TODO: not working - needs to be resolved why in sorted-by-coordinates BAM file it found unsorted reads (maybe just for my test input files)
+rule mapping_qc_preseq:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: extrap = "{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.yield_estimates.txt",
+          curve = "{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.estimates.txt"
+  run:
+    idx = SAMPLES.index(wildcards.sample)
+    paired = "" if DATA_TYPE[idx] == "single" else "-pe"
+    seglen = STAR_MATES_GAP[idx] if STAR_MATES_GAP[idx] != "0" else "1000000" # default is only 5000, but TODO: set it according to the notes of Boris Tichy
+    shell(" {PRESEQ} lc_extrap -B {paired} -seg_len {seglen} -o {output.extrap} {input.bam} ")
+    shell(" {PRESEQ} c_curve -B {paired} -seg_len {seglen} -o {output.curve} {input.bam} ")
+
+
+rule summary_biotypes:                              ################## TODO: CHECK WITH HONZA: -s 0/1/2 #####################
+  input:  ref = "{dir}/data/reference/{ref}.gtf",
+          bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: fwd = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.fwd.biotype_counts.txt",
+          rev = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.rev.biotype_counts.txt"
+  log:    run = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.run_stats.summary_biotypes.log"
+  threads:  4
+  params: fwd = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.fwd.biotype",
+          rev = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/featureCounts.quantSeq.rev.biotype"
+  run:
+    idx = SAMPLES.index(wildcards.sample)
+    paired = "" if DATA_TYPE[idx] == "single" else "-p"
+    shell("""
+      echo '###### FORWARD #######' > {log.run}
+      {FEATURE_COUNTS} -t exon -g gene_biotype {paired} -s 1 -T {threads} -a {input.ref} -o {params.fwd} {input.bam} >> {log.run} 2>&1
+      cut -f 1,7- {params.fwd} > {output.fwd}
+      echo '###### REVERSE #######' >> {log.run}
+      {FEATURE_COUNTS} -t exon -g gene_biotype {paired} -s 2 -T {threads} -a {input.ref} -o {params.rev} {input.bam} >> {log.run} 2>&1
+      cut -f 1,7- {params.rev} > {output.rev}
+    """)
+
+#### TODO: not working - needs to be resolved
+rule RSeQC_read_distribution:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bed = "{dir}/mapped_QC/{ref}.genes.bed12"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_distribution.txt"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/read_distribution.log"
+  run:  
+    shell(" {RSEQC}/read_distribution.py -i {input.bam} -r {input.bed} > {output} 2> {log.run} ")
+    
+          
+rule RSeQC_junction_saturation:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bed = "{dir}/mapped_QC/{ref}.genes.bed12"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/junction_saturation.log"
+  params: prefix = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_saturation"
+  run:  
+    shell(" {RSEQC}/junction_saturation.py -i {input.bam} -r {input.bed} -o {params.prefix} > {log.run} 2>&1 ")
+    
+       
+rule RSeQC_junction_annotation:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bed = "{dir}/mapped_QC/{ref}.genes.bed12"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_annotation.junction.xls"
+  log:    run = "{dir}/RSeQC/junction_annotation.log"
+  params: prefix = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_annotation"
+  run:  
+    shell(" {RSEQC}/junction_annotation.py -i {input.bam} -r {input.bed} -o {params.prefix} > {log.run} 2>&1 ")
+    
+     
+rule RSeQC_bam_stat:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.bam_stat.txt"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/bam_stat.log"
+  run:  
+    shell(" {RSEQC}/bam_stat.py -i {input.bam} > {output} 2> {log.run} ")
+    
+       
+rule RSeQC_infer_experiment:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bed = "{dir}/mapped_QC/{ref}.genes.bed12"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.infer_experiment.txt"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/infer_experiment.log"
+  run:  
+    shell(" {RSEQC}/infer_experiment.py -i {input.bam} -r {input.bed} > {output} 2> {log.run} ")
+  
+  
+rule RSeQC_read_duplication:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_duplication.seq.DupRate.xls"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/read_duplication.log"
+  params: prefix = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.read_duplication"
+  run:  
+    shell(" {RSEQC}/read_duplication.py -i {input.bam} -o {params.prefix} > {log.run} 2>&1 ")
+  
+           
+rule RSeQC_RPKM_saturation:
+  input:  "{dir}/picard/{sample}.G={genome}.R={ref}/strandness.txt",
+          bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
+          bed = "{dir}/mapped_QC/{ref}.genes.bed12"
+  output: "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.RPKM_saturation.rawCount.xls"
+  log:    run = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/RPKM_saturation.log"
+  params: prefix = "{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.RPKM_saturation"
+  run:  
+    idx = SAMPLES.index(wildcards.sample)
+    with open(input[0],"r") as file:
+      data = file.read().strip()
+      #print(data)
+      if data == 'forward':
+        if DATA_TYPE[idx] == "single":
+          shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -d '++,--' -o {params.prefix} > {log.run} 2>&1")
+        else:
+          shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -d '1++,1--,2+-,2-+' -o {params.prefix} > {log.run} 2>&1 ")
+      elif data == 'reverse':
+        if DATA_TYPE[idx] == "single":
+          shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -d '+-,-+' -o {params.prefix} > {log.run} 2>&1 ")
+        else:
+          shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -d '1+-,1-+,2++,2--' -o {params.prefix} > {log.run} 2>&1 ")
+      else:
+        shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -o {params.prefix} > {log.run} 2>&1 ")
+
+
+rule picard_mark_duplicates:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: bam = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.markDups.bam",
+          mtx = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.markDups_metrics.txt"
+  log:    run = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.markDups.log"
+  threads:  6
+  resources:  mem = 5
+  run:  
+    shell("""
+      java -Xmx{resources.mem}g -jar {PICARD}/MarkDuplicates.jar \
+      INPUT={input.bam} \
+      OUTPUT={output.bam} \
+      METRICS_FILE={output.mtx} \
+      REMOVE_DUPLICATES=false \
+      ASSUME_SORTED=true \
+      PROGRAM_RECORD_ID=null \
+      VALIDATION_STRINGENCY=LENIENT > {log.run} 2>&1
+    """)
+
+rule dupradar_count_duplicates:
+  input:  "{dir}/picard/{sample}.G={genome}.R={ref}/strandness.txt",
+          bam = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.markDups.bam",
+          ref = "{dir}/data/reference/{ref}.gtf"
+  output: "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar_dupMatrix.txt"
+  log:    run = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar.log"
+  params: prefix = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar",
+          installation = ""
+  threads:  4
+  run:    
+          idx = SAMPLES.index(wildcards.sample)
+          with open(input[0],"r") as file:
+            data = file.read().strip()
+            #print(data)
+            if data == 'forward':
+              if DATA_TYPE[idx] == "single":
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'single' 1 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+              else:
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'paired' 1 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+            elif data == 'reverse':
+              if DATA_TYPE[idx] == "single":
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'single' 2 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+              else:
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'paired' 2 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+            else:
+              if DATA_TYPE[idx] == "single":
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'single' 0 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+              else:
+                shell(" {DUPRADAR} {input.bam} {input.ref} 'paired' 0 {params.prefix} {threads} {params.installation} > {log.run} 2>&1 ")
+ 
+
+#######################################
+# DEFINITION OF COUNTING RULES (RSEM)
+#
+rule RSEM_prep_ref:
+  input:  ref = "{dir}/data/reference/{ref}.gtf",
+          genome = "{dir}/data/genome/{genome}.fa"
+  output: idx = "{dir}/RSEM/G={genome}.R={ref}.idx.fa"
+  log:    run = "{dir}/RSEM/G={genome}.R={ref}.prep_ref.log"
+  threads:  6
+  params: rsem_ref = "{dir}/RSEM/G={genome}.R={ref}",
+          use_ref = "--gtf" #if ANNOTATION.endswith(".gtf") else "--gff3"
+  run:  
+    shell(" {RSEM_PATH}rsem-prepare-reference --num-threads {threads} {params.use_ref} {input.ref} {input.genome} {params.rsem_ref} > {log.run} 2>&1 ")
+
+
+rule RSEM_calc_expr:
+  input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam",
+          idx = "{dir}/RSEM/G={genome}.R={ref}.idx.fa"
+  output: pdf = "{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_calc_expr.pdf"
+  log:    run = "{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_calc_expr.log",
+          convert = "{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_convert_input.log"
+  threads: 6
+  resources:  mem = 10
+  params: extra = "--estimate-rspd --calc-ci --no-bam-output --seed 12345 --forward-prob 0",
+          ref = "{dir}/RSEM/G={genome}.R={ref}",
+          help_bam = "{dir}/RSEM/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.converted_for_RSEM",
+          prefix = "{dir}/RSEM/{sample}.G={genome}.R={ref}/RSEM_calc_expr"
+  run: 
+    idx = SAMPLES.index(wildcards.sample)
+    paired = "" if DATA_TYPE[idx] == "single" else "--paired-end"
+    shell("""
+      {RSEM_PATH}convert-sam-for-rsem -p {threads} {input.bam} {params.help_bam} &> {log.convert}
+      {RSEM_PATH}rsem-calculate-expression --alignments {paired} {params.extra} -p {threads} --ci-memory {resources.mem}000 {params.help_bam}.bam {params.ref} {params.prefix} >& {log.run}
+      {RSEM_PATH}rsem-plot-model {params.prefix} {output.pdf}
+    """)
+
+
+#rule RSEM_gen_data_matrix:
+
+
+
+# DEFINITION OF COUNTING RULES (FeatureCounts)
+#
+rule FeatureCounts:
+  input:  ref = "{dir}/data/reference/{ref}.gtf",
+          bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
+  output: "{dir}/FeatureCounts/{sample}.G={genome}.R={ref}/feature_counts.txt"
+  log:    run = "{dir}/FeatureCounts/{sample}.G={genome}.R={ref}/run_stats.log"
+  threads:  6
+  run:  
+    idx = SAMPLES.index(wildcards.sample)
+    paired = "" if DATA_TYPE[idx] == "single" else "-p"
+    shell(" {FEATURE_COUNTS} -t exon -g gene_id {paired} -T {threads} -a {input.ref} -o {output} {input.bam} > {log.run} 2>&1 ")
+    
+

@@ -1,0 +1,47 @@
+#default config file
+#any new category must have a "category" feature (which can correspond to the categoty's name)
+#white line define breaks between categories
+#singe feature should be added under the general category above.
+#general default parameters
+category=general
+type=normal
+DNA.BAM.files=cool
+sensitivity=25
+cores=5
+
+#specific paramenters
+#species
+category=species
+species=arabidopsis
+organism_type=plants
+genome_index=undefined
+STAR_intron_max=10000
+STAR_mates_gap=10000
+STAR_params=
+species=human
+organism_type=mammals
+genome_index=undefined
+STAR_intron_max=100000
+STAR_mates_gap=100000
+STAR_params=
+species=None
+organism_type=bacteria
+genome_index=undefined
+STAR_intron_max=1
+STAR_mates_gap=1000
+STAR_params=
+species=trichinella
+organism_type=nematoda
+genome_index=undefined
+STAR_intron_max=1000
+STAR_mates_gap=1000
+STAR_params=
+
+#material
+category=material
+material=DNA
+gap_open_penality=2
+mm_penality=1
+material=RNA
+gap_open_penality=3
+mm_penality=2

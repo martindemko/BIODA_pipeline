@@ -64,7 +64,7 @@ When your configuration file is complete you have to replace config file name at
 ```
 user_json_configuration_file = "config_2D_test.json"
 ``` 
-in `parse_config_files.py` by your own config file and run this script in python 2.7 afterwards. Some configuration features from `defaults.txt` will be added into your own set resulting in new file `updated_user_configuration_file.json` which is already pre-defined in `snakemake_latest` file you should use. 
+in [`parse_config_files.py`](./parse_config_files.py) by your own config file and run this script in python 2.7 afterwards. Some configuration features from [`defaults.txt`](./defaults.txt) will be added into your own set resulting in new file `updated_user_configuration_file.json` which is already pre-defined in [`snakemake_latest`](./snakefile_latest) file you should use. 
 
 Pipeline could be started by following command:
 ```

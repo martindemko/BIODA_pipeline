@@ -3,7 +3,7 @@ This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.rea
 
 ## Configuration
 In order to use it, you should specify your own *config.json* file. It has form of named configuration features (enclosed in double quotes) containing list of strings (values, enclosed by double quotes) separated by comma symbol. Each string belongs to different experiment and the number of all strings in a list defines also the total number of experiments and should be the same for all features (even if there would be an empty string in some cases). First we explain necessary configuration features on real example but remember that json doesn't allow commentary (lines started with symbol #) so all the next commentary lines are added just for better understanding and must be deleted:
-```json
+```
 {
 # define unique index value for each experiment
 "index": ["S1", "S2", "S3"],
@@ -56,5 +56,6 @@ In order to use it, you should specify your own *config.json* file. It has form 
 # (however, we recommend to run pipeline up to the preprocessing target and check for any 
 # adapters identified by preprocessing in the results at "output_dir"/minion/.. and to define
 # own fasta file for each experiment by hand if necessary and then to continue in pipeline)
-"adapters": ["", "adapters_1.fa", "adapters_2.fa"],
+"adapters": ["", "adapters_1.fa", "adapters_2.fa"]
+}
 ```

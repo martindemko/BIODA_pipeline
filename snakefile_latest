@@ -7,9 +7,13 @@ from snakemake.utils import R
 from snakemake.utils import report
 from os.path import split
 
+## This is not effective, because the snakefile is called repeatedly and so the shell command
 #shell(" python2.7 parse_config_files.py ")
 
-workdir: "/mnt/nfs/shared/999993-Bioda/scripts/martin/test"
+## should be used only if you don't define absolute path to data and output_dir in config file, 
+## otherwise, they will be searched relatively from the below directory
+#workdir: "/mnt/nfs/shared/999993-Bioda/scripts/martin/test"
+
 configfile: "updated_user_configuration_file.json"
 
 ########################################
@@ -33,38 +37,7 @@ def uniq_idx(input):
   
 
 ########################################
-# DEFINITION OF DEFAULT PARAMETERS
-#
-# DEFAULTS = {'type'         : 'normal',
-#             'DNA.BAM.files': 'cool',
-#             'sensitivity'  : 25}
-
-###########################################
-# READING OF CONFIG FILE PARAMTERS
-#
-# with open('../../../projects/chromotripsis/chromotripse_samples.json') as json_data:
-#     CONFIG = json.load(json_data)
-
-###########################################
-# DEFINITION OF FINAL CONFIG LIST
-#
-#.split() is used if it's neccesary to use more than one option
-# for feature in CONFIG.keys():
-#     feature_list = CONFIG[feature]
-#     for i in range(0, len(feature_list)):
-#         if feature_list[i] == None:
-#             if feature in DEFAULTS:
-#                 CONFIG[feature][i] = DEFAULTS[feature]
-#             else:
-#                 sys.exit(print "Neccesery parameter not set.")
-# 
-# for feature in set(DEFAULTS.keys()) - set(CONFIG.keys()):
-#     CONFIG[feature]=[DEFAULTS[feature]] * len(CONFIG['index'])
-# 
-# PAT_ID = config["Patient.ID"]
-
-########################################
-# DEFINITION OF INPUT SETTINGS NAMES
+# DEFINITION OF CONFIGURATION FEATURE NAMES
 #
 CONF_INDEX_TERM = "index"
 CONF_GENOME_TERM = "genome"
@@ -89,7 +62,7 @@ CONF_ADAPTERS_TERM = "adapters"
 
 
 ###########################################
-# DEFINITION OF INPUT SETTINGS VARIABLES
+# DEFINITION OF CONFIG SETTINGS VARIABLES
 #
 #.split() is used if it's neccesary to use more than one option
 IDS = config[CONF_INDEX_TERM]
@@ -140,8 +113,13 @@ IN_ANNOTATION_LIST, OUT_ANNOTATION_LIST = list(zip(*uniq(list(zip(FULL_ANNOTATIO
 
 STRANDS = ["forward","reverse"]
 
+PHRED_FILTER = 5  # Trim the 3' end of read if four consequent bases have average base quality smaller than this value
+LEN_FILTER = 20   # Filter sequences shorter than this value after quality trimming
+RD_LENGTH = 75    # Trim all sequences to this maximal length - depends on experiment design and I like to trim them to specified length
+
+
 ####################################
-# DEFINITION OF TOOLS
+# DEFINITION OF TOOLS 
 #
 WRAPPERS_PATH = "file:/mnt/nfs/shared/999993-Bioda/scripts/martin/test/wrappers/"
 DELLY = "delly"
@@ -163,10 +141,6 @@ PRESEQ = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/preseq_v2.0.2/p
 RSEQC = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/RSeQC-2.6.4/build/scripts-2.7"
 DUPRADAR = "/mnt/nfs/shared/999993-Bioda/scripts/martin/test/Tools/dupRadar.R"
 
-PHRED_FILTER = 5  # Trim the 3' end of read if four consequent bases have average base quality smaller than this value
-LEN_FILTER = 20   # Filter sequences shorter than this value after quality trimming
-RD_LENGTH = 75    # Trim all sequences to this maximal length - depends on experiment design and I like to trim them to specified length
-
 
 ####################################
 # DEFINITION OF FINAL RULES
@@ -174,7 +148,7 @@ RD_LENGTH = 75    # Trim all sequences to this maximal length - depends on exper
 
 
 # ALL:
-# so far all we can manage (preprocessing, trimming, mapping)
+# so far all we can manage (preprocessing, trimming, mapping, mapping QC and all preceding analysis)
 #
 rule all:
   input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
@@ -222,7 +196,7 @@ rule trimming:
           
 
 # MAPPING:
-# involves genome index management, reads mapping, bam indexing, mapping QC and all preceding analysis
+# involves genome index management, reads mapping, bam indexing
 #
 rule mapping:
   input:  expand("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam.bai", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
@@ -257,10 +231,8 @@ rule test:
           expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_annotation.junction.xls", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
           expand("{dir}/RSeQC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.junction_saturation.junctionSaturation_plot.r", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION),
           expand("{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.dupRadar_dupMatrix.txt", zip, dir=OUTPUT_DIR, sample=SAMPLES, genome=GENOME_PREFIX, ref=ANNOTATION)
-          
-rule test_gen_index:
-  input:  expand("{dir}/data/genome_index/G={genome}.R={ref}", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX, ref=ANNOTATION)
-
+  
+  
 ####################################
 # DEFINITION OF ZERO-STEP RULES (COPY OF DATA, FIRST QC, ADAPTERS CHECK)
 #
@@ -279,7 +251,6 @@ rule copy_fq_reads:
 # GENOMES MANAGER RULES
 #       
 ### TODO: add check between genome and annotation (e.g., chromosome names)
-### TODO: do it better for each experiment own copy of genome_index
 rule copy_genome:
   input:  IN_GENOMES_LIST
   output: OUT_GENOMES_LIST
@@ -366,6 +337,9 @@ rule check_adapters_by_swan:
 # DEFINITION OF FIRST-STEP RULES (TRIMMING, SECOND QC)
 #
 
+# TRIMMING RULES 
+# (Trimmomatic for classic analysis type and BBDUK for quant analysis type)
+#       
 rule trimming_SE:
   input:  reads = "{dir}/data/reads/{sample}.single.fq.gz"
   output: clean = "{dir}/trimming/{sample}.single.clean.fq.gz"
@@ -457,6 +431,8 @@ rule trimming_PE:
       sys.exit(print("Unknown type of material or analysis!"))
       
 
+# FASTQC RULE FOR TRIMMED DATA
+#       
 rule second_fastqc:
   input:  reads = "{dir}/trimming/{sample}.fq.gz"
   output: html = "{dir}/2nd_qc/{sample}_fastqc.html"
@@ -471,6 +447,11 @@ rule second_fastqc:
 #########################################################
 # DEFINITION OF MAPPING RULES
 #
+
+# GENOME INDEXING RULE
+# (if genome index is not defined in config.json it will be generated from the scratch,
+# otherwise, it will be just soft-linked from the source)
+#       
 rule STAR_gen_index:
   input:  "{dir}/data/genome/{genome}.fa",
           ref = "{dir}/data/reference/{ref}.gtf"
@@ -493,6 +474,9 @@ rule STAR_gen_index:
             shell(" {STAR} --runMode genomeGenerate --runThreadN {threads} --genomeDir {output} --genomeFastaFiles {input[0]} "
                   " --sjdbGTFfile {input.ref} --genomeSAindexNbases {STAR_GENOME_BASES_LOG} {params.extra} > {log} 2>&1 ")
 
+# MAPPING RULES
+# (in STAR tool)
+#       
 rule STAR_alignment_single:
   input:  reads = "{dir}/trimming/{sample}.single.clean.fq.gz",
           gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
@@ -543,6 +527,8 @@ rule STAR_alignment_paired:
     shell(" {SAMTOOLS} sort -@ {threads} {output.trans_bam_tmp} -o {output.trans_bam} ")
 
 
+# BAM INDEXING RULE
+#       
 rule samtools_bam_index:
   input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
   output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam.bai"
@@ -551,6 +537,9 @@ rule samtools_bam_index:
     shell(" {SAMTOOLS} index -@ {threads} {input} ")
     
 
+# SAM->BAM RULE
+# (just for case)
+#       
 rule SAM_to_BAM:
   input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.sam"
   output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
@@ -561,6 +550,8 @@ rule SAM_to_BAM:
       rm {input}
     """)
           
+# BAM HEADER GENERATOR RULE
+#       
 rule BAM_header:
   input:  "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam"
   output: "{dir}/aligned/{sample}.G={genome}.R={ref}/{data}.bam.header"
@@ -572,6 +563,10 @@ rule BAM_header:
 ###############################################
 # DEFINITION OF MAPPING QC RULES
 #
+
+# MAPPING-QC PREPARATION RULES
+# (some necessary commands for downstream analysis)
+#       
 rule mapping_qc_ref_preparation:
   input:  ref = "{dir}/data/reference/{ref}.gtf"
   output: tmp = temp("{dir}/mapped_QC/temp_{ref}.gtf"),
@@ -601,6 +596,8 @@ rule mapping_qc_ref_preparation_2:
       cut -s -f 1,4,5,7,9 {output.rrna} >> {output.list}
     """)
 
+# PICARD RULE
+#       
 rule mapping_qc_picard:
   input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
           bai = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam.bai",
@@ -635,6 +632,10 @@ rule mapping_qc_picard:
     """)
           
 
+# STRANDNESS COMPUTING RULE
+# (auxiliary rule generating file containing strandness of particular alignment data
+# used in downstream analysis)
+#       
 rule mapping_qc_strandness:
   input:  txt_fwd = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.forward.txt",
           txt_rev = "{dir}/picard/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.output.RNA_Metrics.reverse.txt"
@@ -664,8 +665,12 @@ rule mapping_qc_strandness:
       write(data, file = '{output}')
     """)
     
+    
+# PRESEQ RULE
+#
 ## TODO: check the automatic setting of the insert gap size according to the mapper setting
 ## TODO: not working - needs to be resolved why in sorted-by-coordinates BAM file it found unsorted reads (maybe just for my test input files)
+#       
 rule mapping_qc_preseq:
   input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
   output: extrap = "{dir}/preseq/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.yield_estimates.txt",
@@ -678,6 +683,8 @@ rule mapping_qc_preseq:
     shell(" {PRESEQ} c_curve -B {paired} -seg_len {seglen} -o {output.curve} {input.bam} ")
 
 
+# FEATURECOUNTS SUMMARISATION RULE
+#       
 rule summary_biotypes:                              ################## TODO: CHECK WITH HONZA: -s 0/1/2 #####################
   input:  ref = "{dir}/data/reference/{ref}.gtf",
           bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
@@ -699,7 +706,9 @@ rule summary_biotypes:                              ################## TODO: CHE
       cut -f 1,7- {params.rev} > {output.rev}
     """)
 
-#### TODO: not working - needs to be resolved
+# RSEQC RULES
+#       
+#### TODO: this one is not working - needs to be investigated
 rule RSeQC_read_distribution:
   input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
           bed = "{dir}/mapped_QC/{ref}.genes.bed12"
@@ -781,6 +790,8 @@ rule RSeQC_RPKM_saturation:
         shell(" {RSEQC}/RPKM_saturation.py -i {input.bam} -r {input.bed} -o {params.prefix} > {log.run} 2>&1 ")
 
 
+# DUPLICATION CAOUNTING RULES
+#       
 rule picard_mark_duplicates:
   input:  bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam"
   output: bam = "{dir}/mapped_QC/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.markDups.bam",
@@ -866,11 +877,7 @@ rule RSEM_calc_expr:
       {RSEM_PATH}rsem-calculate-expression --alignments {paired} {params.extra} -p {threads} --ci-memory {resources.mem}000 {params.help_bam}.bam {params.ref} {params.prefix} >& {log.run}
       {RSEM_PATH}rsem-plot-model {params.prefix} {output.pdf}
     """)
-
-
-#rule RSEM_gen_data_matrix:
-
-
+    
 
 # DEFINITION OF COUNTING RULES (FeatureCounts)
 #

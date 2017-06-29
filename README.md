@@ -60,17 +60,21 @@ In order to use it, you should specify your own `config.json` file. It has form 
 }
 ```
 
-When your configuration file is complete you have to replace config file name at line `user_json_configuration_file = "config_2D_test.json"` in `parse_config_files.py` by your own config file and run this script in python 2.7 afterwards. Some configuration features from `defaults.txt` will be added into your own set resulting in new file `updated_user_configuration_file.json` which is already pre-defined in `snakemake_latest` file you should use. 
+When your configuration file is complete you have to replace config file name at line: 
+```
+user_json_configuration_file = "config_2D_test.json"
+``` 
+in `parse_config_files.py` by your own config file and run this script in python 2.7 afterwards. Some configuration features from `defaults.txt` will be added into your own set resulting in new file `updated_user_configuration_file.json` which is already pre-defined in `snakemake_latest` file you should use. 
 
 Pipeline could be started by following command:
 ```
 snakemake -s snakemake_latest
 ```
-...which starts full pipeline (rule called all) for one core only, therefore, we recommend to use switch `--cores XY`, e.g.:
+which starts full pipeline (rule called **all**) for one core only, therefore, we recommend to use switch `--cores XY`, e.g.:
 ```
 snakemake -s snakemake_latest --cores 30
 ```
-...so snakemake could work on your tasks more effectively and more quicly. Also, if you want to run another subset of tasks (e.g., **preprocessing**, **trimming** or **mapping** - each of which is superior to the previous ones) you can use those keywords in command like this:
+so snakemake could work on your tasks more effectively and more quicly. Also, if you want to run another subset of tasks (e.g., **preprocessing**, **trimming** or **mapping** - each of which is superior to the previous ones) you can use those keywords in command like this:
 ```
 snakemake -s snakemake_latest --cores 30 trimming
 ```

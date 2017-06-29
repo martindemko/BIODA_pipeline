@@ -2,7 +2,7 @@
 This is the BIODA Group's prototype of [snakemake pipeline](http://snakemake.readthedocs.io/en/stable/index.html) for **RNA-Seq**, **WGS**, ... analysis.
 
 ## Configuration
-In order to use it, you should specify your own *config.json* file. It has form of named configuration features (enclosed in double quotes) containing list of strings (values, enclosed by double quotes) separated by comma symbol. Each string belongs to different experiment and the number of all strings in a list defines also the total number of experiments and should be the same for all features (even if there would be an empty string in some cases). First we explain necessary configuration features on real example but remember that json doesn't allow commentary (lines started with symbol #) so all the next commentary lines are added just for better understanding and must be deleted:
+In order to use it, you should specify your own `config.json` file. It has form of named configuration features (enclosed in double quotes) containing list of strings (values, enclosed by double quotes) separated by comma symbol. Each string belongs to different experiment and the number of all strings in a list defines also the total number of experiments and should be the same for all features (even if there would be an empty string in some cases). First we explain necessary configuration features on real example but remember that json doesn't allow commentary (lines started with symbol #) so all the next commentary lines are added just for better understanding and must be deleted:
 ```
 {
 # define unique index value for each experiment
@@ -58,4 +58,19 @@ In order to use it, you should specify your own *config.json* file. It has form 
 # own fasta file for each experiment by hand if necessary and then to continue in pipeline)
 "adapters": ["", "adapters_1.fa", "adapters_2.fa"]
 }
+```
+
+When your configuration file is complete you have to replace config file name at line `user_json_configuration_file = "config_2D_test.json"` in `parse_config_files.py` by your own config file and run this script in python 2.7 afterwards. Some configuration features from `defaults.txt` will be added into your own set resulting in new file `updated_user_configuration_file.json` which is already pre-defined in `snakemake_latest` file you should use. 
+
+Pipeline could be started by following command:
+```
+snakemake -s snakemake_latest
+```
+...which starts full pipeline (rule called all) for one core only, therefore, we recommend to use switch `--cores XY`, e.g.:
+```
+snakemake -s snakemake_latest --cores 30
+```
+...so snakemake could work on your tasks more effectively and more quicly. Also, if you want to run another subset of tasks (e.g., **preprocessing**, **trimming** or **mapping** - each of which is superior to the previous ones) you can use those keywords in command like this:
+```
+snakemake -s snakemake_latest --cores 30 trimming
 ```

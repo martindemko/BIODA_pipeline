@@ -339,6 +339,7 @@ rule check_adapters_by_swan:
 
 # TRIMMING RULES 
 # (Trimmomatic for classic analysis type and BBDUK for quant analysis type)
+# TODO: BBDUK is not working - needs to be investigated
 #       
 rule trimming_SE:
   input:  reads = "{dir}/data/reads/{sample}.single.fq.gz"

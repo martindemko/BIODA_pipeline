@@ -19,6 +19,9 @@ configfile: "updated_user_configuration_file.json"
 ########################################
 # DEFINITION OF uniq FUNCTIONS FOR list
 #
+which = lambda targetList, f: [index for index, item in enumerate(targetList) if f(item)]
+extract = lambda targetList, f: [item for index, item in enumerate(targetList) if f(index)]
+
 def uniq(input):
   output = []
   for x in input:
@@ -177,22 +180,44 @@ rule all:
 # involves organising of input data, 1st FastQC run and adapter check
 #
 rule preprocessing:
-  input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
-          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
+  input:  expand("{dir}/report_preprocessing_for_{sample}.html", zip, dir=OUTPUT_DIR, sample=SAMPLES)
+  
+rule preprocessing_body:
+  input:  minion = lambda wildcards: expand(wildcards.dir+"/minion/{name}.html", name=[item for index, item in FQ_DATA_INFIX_LIST if re.search(wildcards.sample,item)]),
+          FastQC_pre = lambda wildcards: expand(wildcards.dir+"/1st_qc/{name}_fastqc.html", name=[item for index, item in FQ_DATA_INFIX_LIST if re.search(wildcards.sample,item)]),
           # uniq(expand("{dir}/data/genome/{genome}.fa", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX)),
           # uniq(expand("{dir}/data/reference/{ref}.gtf", zip, ref=ANNOTATION, dir=OUTPUT_DIR))
+  output: report = "{dir}/report_preprocessing_for_{sample}.html"
+  run:
+    report("""
+      =====================================
+      Final report up to preprocessing part
+      =====================================
+      
+      """, output.report, **input)
           
 
 # TRIMMING:
 # involves trimming, 2nd FastQC run and all preceding analysis
 #
 rule trimming:
-  input:  list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/minion/"+item[1]+".minion.compare", FQ_DATA_INFIX_LIST)),
-          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/1st_qc/"+item[1]+"_fastqc.html", FQ_DATA_INFIX_LIST)),
-          list(map(lambda item: OUTPUT_DIR_DICT[item[0]]+"/2nd_qc/"+item[1]+".clean_fastqc.html", FQ_DATA_INFIX_LIST)),
+  input:  expand("{dir}/report_trimming_for_{sample}.html", zip, dir=OUTPUT_DIR, sample=SAMPLES),
+          expand("{dir}/report_preprocessing_for_{sample}.html", zip, dir=OUTPUT_DIR, sample=SAMPLES)
+
+rule trimming_body:
+  input:  Trimming = "{dir}/trimming/{sample}.trimming.html",
+          FastQC_post = lambda wildcards: expand(wildcards.dir+"/2nd_qc/{name}.clean_fastqc.html", name=[item for index, item in FQ_DATA_INFIX_LIST if re.search(wildcards.sample,item)])
           # uniq(expand("{dir}/data/genome_index/G={genome}.R={ref}", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX, ref=ANNOTATION)),
           # uniq(expand("{dir}/data/genome/{genome}.fa", zip, dir=OUTPUT_DIR, genome=GENOME_PREFIX)),
           # uniq(expand("{dir}/data/reference/{ref}.gtf", zip, ref=ANNOTATION, dir=OUTPUT_DIR)),
+  output: report = "{dir}/report_trimming_for_{sample}.html"
+  run:
+    report("""
+      ================================
+      Final report up to trimming part
+      ================================
+      
+      """, output.report, **input)
           
 
 # MAPPING:
@@ -316,21 +341,46 @@ rule first_fastqc:
         
           
 # ADAPTERS CHECK RULES
-#       
-rule check_adapters_by_minion:
+# 
+rule check_adapters_by_minion_and_swan:
   input:  reads = "{dir}/data/reads/{sample}.fq.gz"
-  output: minion = "{dir}/minion/{sample}.minion.fa"
-  log:    run = "{dir}/minion/{sample}.log"
+  output: swan = "{dir}/minion/{sample}.minion.compare",
+          minion = "{dir}/minion/{sample}.minion.fa",
+          report = "{dir}/minion/{sample}.html"
+  log:    minion_run = "{dir}/minion/{sample}.log"
   params: minion = "-show 3 -write-fasta"
   run:    
-    shell(" {REAPER_SRC}/minion search-adapter -i {input.reads} {params.minion} {output.minion} > {log.run} 2>&1 ")
-
-rule check_adapters_by_swan:
-  input:  minion = "{dir}/minion/{sample}.minion.fa"
-  output: swan = "{dir}/minion/{sample}.minion.compare"
-  run:  
-    shell(" {REAPER_SRC}/swan -r {GLOBAL_ADAPTERS} -q {input.minion} > {output.swan} 2>&1 ")
-
+    shell(" {REAPER_SRC}/minion search-adapter -i {input.reads} {params.minion} {output.minion} > {log.minion_run} 2>&1 ")
+    shell(" {REAPER_SRC}/swan -r {GLOBAL_ADAPTERS} -q {output.minion} > {output.swan} 2>&1 ")
+    report("""
+      =======================
+      Report from minion tool
+      =======================
+      Minion part
+      -----------
+      Input data file: 
+      
+      - reads_
+      
+      Output data file: 
+      
+      - minion_out_
+      
+      Output log file: 
+      
+      - log_
+    
+      Swan part
+      ---------
+      Input data file: 
+      
+      - minion_out_
+      
+      Output data file: 
+      
+      - swan_out_
+      
+      """, output.report, reads=input.reads, minion_out=output.minion, swan_out=output.swan, log=log.minion_run)
 
 
 #########################################################
@@ -343,7 +393,8 @@ rule check_adapters_by_swan:
 #       
 rule trimming_SE:
   input:  reads = "{dir}/data/reads/{sample}.single.fq.gz"
-  output: clean = "{dir}/trimming/{sample}.single.clean.fq.gz"
+  output: clean = "{dir}/trimming/{sample}.single.clean.fq.gz",
+          report = "{dir}/trimming/{sample}.trimming.html"
   log:    run = "{dir}/trimming/{sample}.run_stats.log",
           stats = "{dir}/trimming/{sample}.cont_stats.log",
           rpkm = "{dir}/trimming/{sample}.rpkm_stats.log",
@@ -369,12 +420,46 @@ rule trimming_SE:
       kmers_extra = params.bb_kmers_extra if adapters != "" else ""
       shell("{BBMAP}/bbduk.sh in={input.reads} out={output.clean} outm={params.waste} {adapters} stats={log.stats} rpkm={log.rpkm} "
             "dump={log.kmers} threads={threads} overwrite=true {kmers_extra} {params.bb_extra} > {log.run} 2>&1 ")
+      report("""
+        ==================================
+        Report from trimming by BBMAP tool
+        ==================================
+        
+        Command: {BBMAP}/bbduk.sh in={input.reads} out={output.clean} outm={params.waste} {adapters} stats={log.stats} rpkm={log.rpkm} dump={log.kmers} threads={threads} overwrite=true {kmers_extra} {params.bb_extra} > {log.run} 2>&1
+        
+        Input data: reads_
+        
+        Output data: clean_reads_
+        
+        Discarded data: dirty_reads_
+        
+        Statistics file: stats_
+        
+        Information about RPKM: RPKM_info_
+        
+        Information about Kmers: Kmers_info_
+        
+        Run log file: log_
+        """, output.report, reads=input.reads, clean_reads=output.clean, dirty_reads=params.waste, stats=log.stats, RPKM_info=log.rpkm, Kmers_info=log.kmers, log=log.run)
             
     elif MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "classic":
       if adapters != "": adapters = "ILLUMINACLIP:"+adapters+":2:30:10" # TODO: check for better settings (see: http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf starting at page 5, or http://www.usadellab.org/cms/?page=trimmomatic)
       shell("java -Xmx{resources.mem}g -jar {TRIMMOMATIC} SE -threads {threads} {params.phred} {input.reads} {output.clean} {adapters} "
             "LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} "
             "MINLEN:{params.minlen} > {log.run} 2>&1 ")
+      report("""
+        ===================================
+        Report from trimming by Trimmomatic
+        ===================================
+        
+        Command: java -Xmx{resources.mem}g -jar {TRIMMOMATIC} SE -threads {threads} {params.phred} {input.reads} {output.clean} {adapters} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1
+            
+        Input data: reads_
+        
+        Output data: clean_reads_
+        
+        Run log file: log_
+        """, output.report, reads=input.reads, clean_reads=output.clean, log=log.run)
             
     elif MATERIAL[idx] == "DNA":
       print("Some trimming for DNA analysis.")
@@ -387,7 +472,8 @@ rule trimming_PE:
   input:  r1 = "{dir}/data/reads/{sample}_R1.fq.gz",
           r2 = "{dir}/data/reads/{sample}_R2.fq.gz"
   output: c1 = "{dir}/trimming/{sample}_R1.clean.fq.gz",
-          c2 = "{dir}/trimming/{sample}_R2.clean.fq.gz"
+          c2 = "{dir}/trimming/{sample}_R2.clean.fq.gz",
+          report = "{dir}/trimming/{sample}.trimming.html"
   log:    run = "{dir}/trimming/{sample}.run_stats.log",
           stats = "{dir}/trimming/{sample}.cont_stats.log",
           rpkm = "{dir}/trimming/{sample}.rpkm_stats.log",
@@ -405,7 +491,6 @@ rule trimming_PE:
           bb_extra = "qtrim=rl trimq=10 minlength=20",
           w1 = "{dir}/trimming/{sample}_R1.trimmed.fq.gz",
           w2 = "{dir}/trimming/{sample}_R2.trimmed.fq.gz",
-          sing = "{dir}/trimming/{sample}.singleton.fq.gz",
           r1u = "{dir}/trimming/{sample}_R1.unpaired.fq.gz",
           r2u = "{dir}/trimming/{sample}_R2.unpaired.fq.gz"
   run:
@@ -416,14 +501,50 @@ rule trimming_PE:
       if adapters != "": adapters = "ref="+adapters
       kmers_extra = params.bb_kmers_extra if adapters != "" else ""
       shell("{BBMAP}/bbduk.sh in={input.r1} in2={input.r2} out={output.c1} out2={output.c2} outm={params.w1} outm2={params.w2} "
-            "outs={params.sing} {adapters} stats={log.stats} rpkm={log.rpkm} dump={log.kmers} threads={threads} overwrite=true "
+            "{adapters} stats={log.stats} rpkm={log.rpkm} dump={log.kmers} threads={threads} overwrite=true "
             "{kmers_extra} {params.bb_extra} > {log.run} 2>&1 ")
+      report("""
+        ==================================
+        Report from trimming by BBMAP tool
+        ==================================
+        
+        Command: {BBMAP}/bbduk.sh in={input.r1} in2={input.r2} out={output.c1} out2={output.c2} outm={params.w1} outm2={params.w2} {adapters} stats={log.stats} rpkm={log.rpkm} dump={log.kmers} threads={threads} overwrite=true {kmers_extra} {params.bb_extra} > {log.run} 2>&1
+        
+        Input data: reads_1_ and reads_2_
+        
+        Output data: clean_reads_1_ and clean_reads_2_
+        
+        Discarded paired data: dirty_reads_1_ and dirty_reads_2_
+        
+        Statistics file: stats_
+        
+        Information about RPKM: RPKM_info_
+        
+        Information about Kmers: Kmers_info_
+        
+        Run log file: log_
+        """, output.report, reads_1=input.r1, reads_2=input.r2, clean_reads_1=output.c1, clean_reads_2=output.c2, dirty_reads_1=params.w1, dirty_reads_2=params.w2, stats=log.stats, RPKM_info=log.rpkm, Kmers_info=log.kmers, log=log.run)
             
     elif MATERIAL[idx] == "RNA" and ANALYSIS_TYPE[idx] == "classic":
       if adapters != "": adapters = "ILLUMINACLIP:"+adapters+":2:30:10" # TODO: check for better settings (see: http://www.usadellab.org/cms/uploads/supplementary/Trimmomatic/TrimmomaticManual_V0.32.pdf starting at page 5, or http://www.usadellab.org/cms/?page=trimmomatic)
       shell("java -Xmx{resources.mem}g -jar {TRIMMOMATIC} PE -threads {threads} {params.phred} {input.r1} {input.r2} {output.c1} "
             "{params.r1u} {output.c2} {params.r2u}  {adapters} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} "
             "SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1 ")
+      report("""
+        ===================================
+        Report from trimming by Trimmomatic
+        ===================================
+        
+        Command: java -Xmx{resources.mem}g -jar {TRIMMOMATIC} PE -threads {threads} {params.phred} {input.r1} {input.r2} {output.c1} {params.r1u} {output.c2} {params.r2u}  {adapters} LEADING:{params.leading} TRAILING:{params.trailing} CROP:{params.crop} SLIDINGWINDOW:{params.slid_w_1}:{params.slid_w_2} MINLEN:{params.minlen} > {log.run} 2>&1
+        
+        Input data: reads_1_ and reads_2_
+        
+        Output data: clean_reads_1_ and clean_reads_2_
+        
+        Discarded data: dirty_reads_1_ and dirty_reads_2_
+        
+        Run log file: log_
+        """, output.report, reads_1=input.r1, reads_2=input.r2, clean_reads_1=output.c1, clean_reads_2=output.c2, dirty_reads_1=params.r1u, dirty_reads_2=params.r2u, log=log.run)
             
     elif MATERIAL[idx] == "DNA":
       print("Some trimming for DNA analysis.")
@@ -480,8 +601,10 @@ rule STAR_gen_index:
 #       
 rule STAR_alignment_single:
   input:  reads = "{dir}/trimming/{sample}.single.clean.fq.gz",
-          gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
-          ref = "{dir}/data/reference/{ref}.gtf"
+          gen_index = lambda wildcards: expand(wildcards.dir+"/data/genome_index/G={genome}.R={ref}", genome=extract(GENOME_PREFIX, lambda x: SAMPLES[x] == wildcards.sample), ref=extract(ANNOTATION, lambda x: SAMPLES[x] == wildcards.sample)),
+          # gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
+          ref = lambda wildcards: expand(wildcards.dir+"/data/reference/{ref}.gtf", ref=extract(ANNOTATION, lambda x: SAMPLES[x] == wildcards.sample)),
+          # ref = "{dir}/data/reference/{ref}.gtf"
   output: gen_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
           trans_bam_tmp = temp("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.out.bam"),
           trans_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam"
@@ -505,8 +628,10 @@ rule STAR_alignment_single:
 rule STAR_alignment_paired:
   input:  r1 = "{dir}/trimming/{sample}_R1.clean.fq.gz",
           r2 = "{dir}/trimming/{sample}_R2.clean.fq.gz",
-          gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
-          ref = "{dir}/data/reference/{ref}.gtf"
+          gen_index = lambda wildcards: expand(wildcards.dir+"/data/genome_index/G={genome}.R={ref}", genome=extract(GENOME_PREFIX, lambda x: SAMPLES[x] == wildcards.sample), ref=extract(ANNOTATION, lambda x: SAMPLES[x] == wildcards.sample)),
+          # gen_index = "{dir}/data/genome_index/G={genome}.R={ref}",
+          ref = lambda wildcards: expand(wildcards.dir+"/data/reference/{ref}.gtf", ref=extract(ANNOTATION, lambda x: SAMPLES[x] == wildcards.sample)),
+          # ref = "{dir}/data/reference/{ref}.gtf"
   output: gen_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.sortedByCoord.out.bam",
           trans_bam_tmp = temp("{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.out.bam"),
           trans_bam = "{dir}/aligned/{sample}.G={genome}.R={ref}/Aligned.toTranscriptome.sortedByCoord.out.bam"

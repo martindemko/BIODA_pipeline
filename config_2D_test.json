@@ -1,6 +1,6 @@
 {"index":  ["S1", "S2", "S3"],
 "data_type": ["single", "paired", "paired"],
-"analysis_type": ["classic", "classic", "quant"],
+"analysis_type": ["classic", "classic", "classic"],
 "material":["RNA","RNA","RNA"],
 "species":["trichinella","trichinella","trichinella"],
 "output_dir": ["samples_2D_test", "samples_2D_test", "samples_2D_test_new"],
